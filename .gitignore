@@ -102,3 +102,11 @@ venv.bak/
 
 # mypy
 .mypy_cache/
+
+.idea/
+.bash_history
+Data/Repos/
+Data/Diffs/
+Data/files-pre/
+Data/files-post/
+Data/output.diff
