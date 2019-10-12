@@ -191,6 +191,7 @@ def is_valid_change(diff):
 
 	for change in diff.changes:
 		striped_line = change.line.strip()
+		# TODO: only accept commits starting with comment
 		if striped_line and not striped_line.startswith("#"):
 			return False
 
