@@ -198,31 +198,67 @@ def is_valid_change(diff):
 	return True
 
 
+import itertools
+
+
 def parse_diff(diffs: Generator, meta: Metadata, csv_out_file):
 	for diff in diffs:
 		if not is_valid_change(diff):
 			continue
 
 		# filter out empty line changes
-		changes = filter(lambda x: bool(x.line), diff.changes)
+		changes = [x for x in diff.changes if x.line]
 
 		# ignoring line shift changes
-		added_or_removed_changes = filter(lambda x: bool(x.old) ^ bool(x.new), changes)
+		added_changes = [x for x in changes if not bool(x.old) and bool(x.new)]
+		removed_changes = [x for x in changes if not bool(x.new) and bool(x.old)]
 
 		if diff.header.old_path != diff.header.new_path:
 			print(f'{meta}: Paths are different Old:{diff.header.old_path} New:{diff.header.new_path}')
 			continue
 
-		write_to_csv(added_or_removed_changes, csv_out_file, diff.header.new_path, meta)
+		removed_changes = remove_consecutive(removed_changes, is_added=False)
+		added_changes = remove_consecutive(added_changes, is_added=True)
+		write_to_csv(added_changes + removed_changes, csv_out_file, diff.header.new_path, meta)
 	return
 
 
+def remove_consecutive(changes, is_added=True):
+	filtered_changes = []
+	if not changes:
+		return filtered_changes
+
+	if len(changes) == 1:
+		filtered_changes.extend(changes)
+	else:
+		filtered_changes.append(changes[0])
+		for i in range(1, len(changes)):
+			if is_added and (changes[i].new - changes[i - 1].new) == 1:
+				continue
+			if not is_added and (changes[i].old - changes[i - 1].old) == 1:
+				continue
+
+			filtered_changes.append(changes[i])
+	return filtered_changes
+
+
 def write_to_csv(changes: Iterator, csv_file_name: str, file_changed: str, meta: Metadata):
+	if not changes:
+		return
+	dups = set()
 	with open(csv_file_name, 'a', newline='') as csv_file:
 		writer = csv.writer(csv_file, delimiter=',')
 
 		for change in changes:
-			mode = "ADDED" if change.new else "REMOVED"
+			mode = ADDED_MODE if change.new else REMOVED_MODE
+			lineno = change.new if mode == ADDED_MODE else change.old
+
+			# remove duplicates
+			change_id = f'{meta.commit_id}#{file_changed}#{lineno}'
+			if change_id in dups:
+				continue
+
+			dups.add(change_id)
 			row = [meta.org, meta.project, meta.commit_id, mode, file_changed, change.old, change.new]
 			writer.writerow(row)
 
