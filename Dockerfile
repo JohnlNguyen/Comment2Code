@@ -4,8 +4,8 @@ ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 # Install Python packages
 RUN pip --no-cache-dir install --upgrade \
         keras \
-        ray \
-        psutil
+		pygments \
+		whatthepatch
 
 # Open Ports for TensorBoard, Jupyter, SSH and Jupyter
 EXPOSE 6006

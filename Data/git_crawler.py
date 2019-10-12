@@ -214,7 +214,7 @@ def parse_diff(diffs: Generator, meta: Metadata, csv_out_file):
 		removed_changes = [x for x in changes if not bool(x.new) and bool(x.old)]
 
 		if diff.header.old_path != diff.header.new_path:
-			print(f'{meta}: Paths are different Old:{diff.header.old_path} New:{diff.header.new_path}')
+			print("{}:Paths are different Old:{} New:{}".format(meta, diff.header.old_path, diff.header.new_path))
 			continue
 
 		removed_changes = remove_consecutive(removed_changes, is_added=False)
@@ -254,7 +254,7 @@ def write_to_csv(changes: Iterator, csv_file_name: str, file_changed: str, meta:
 			lineno = change.new if mode == ADDED_MODE else change.old
 
 			# remove duplicates
-			change_id = f'{meta.commit_id}#{file_changed}#{lineno}'
+			change_id = "{}#{}#{}".format(meta.commit_id, file_changed, lineno)
 			if change_id in dups:
 				continue
 

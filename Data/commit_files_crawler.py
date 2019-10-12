@@ -11,7 +11,6 @@ import pygments
 from pygments.token import Comment, Text, Name, Keyword
 
 from lexer import strip_special_chars, build_lexer, lex_content
-from typing import List
 import pickle
 
 DEBUG = False
@@ -53,7 +52,7 @@ def path_to_file(org, project):
 
 
 def create_file_name(org, project, file, commit, is_added=False):
-	file_name = f'{org}#{project}#{commit}#{file.replace("/", "__")}'
+	file_name = "{}#{}#{}".format(org, project, commit, file.replace("/", "__"))
 	if is_added:
 		return Path(os.path.join("files-post", file_name))
 	else:
@@ -120,7 +119,7 @@ def extract_code(start_lineno, file_name):
 
 
 def get_commit_files(csv_file_name: str):
-	comment_code_rows: List[CommentCodeRow] = []
+	comment_code_rows = []
 	with open(csv_file_name, newline='') as csv_file:
 		reader = csv.reader(csv_file, delimiter=',')
 		# using csv header as namedtuple fields
@@ -154,7 +153,7 @@ def get_commit_files(csv_file_name: str):
 def write_data(rows):
 	with open('comment_code.pkl', 'wb') as f:
 		pickle.dump(rows, f)
-	print(f'Total Comment-Code Pairs written {len(rows)}')
+	print("Total Comment-Code Pairs written {}".format(len(rows)))
 	return
 
 

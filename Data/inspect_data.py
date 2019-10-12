@@ -15,6 +15,7 @@ if __name__ == '__main__':
 	pp = pprint.PrettyPrinter(indent=2)
 	with open(Path(os.getcwd(), 'comment_code.pkl').as_posix(), 'rb') as f:
 		data = pickle.load(f)
+		print("Total Comment-Code pairs: {}".format(len(data)))
 		for row in data:
 			query = input("Press enter to inspect next pair or type q to quit: ")
 			if query == 'q':
@@ -25,5 +26,5 @@ if __name__ == '__main__':
 			print("---Code---")
 			pp.pprint(row.code)
 			org, proj, commit = pprint_file_name(row.file)
-			print(f'Heuristic: {row.heuristic} Line #: {row.lineno}')
+			print("Heuristic: {} Line #: {}".format(row.heuristic, row.lineno))
 			print("Link to commit: https://github.com/{}/{}/commit/{}".format(org, proj, commit))
