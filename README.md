@@ -12,7 +12,12 @@ Run Docker Container
 docker run -v $(pwd):/ds -it johnlnguyen/comment2code:latest
 ```
 
-Inspect Comment
+Inspect Data
 ```shell script
 make inspect
+```
+
+Randomly Shuffle and Inspect Data
+```shell script
+make inspect-rand
 ```

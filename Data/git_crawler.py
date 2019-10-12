@@ -26,7 +26,7 @@ class CrawlMode(object):
 		"""
 		Criteria for us to accept a diff
 			- File must be a python file
-			- Diff must start with a comment (might relax this later)
+			- Diff must has a comment
 
 		:param diff: Changes in one file
 		:return:
