@@ -1,9 +1,5 @@
 
-
-test-extract-code:
-	@python3 Data/commit_files_crawler.py -t=True -db=True
-
-get-diffs:
+crawl:
 	@cd Data && python3 git_crawler.py
 
 extract:
@@ -11,3 +7,13 @@ extract:
 
 inspect:
 	@cd Data && python3 inspect_data.py
+
+inspect-rand:
+	@cd Data && python3 inspect_data.py --rand=True
+
+test-extract-code:
+	@python3 Data/commit_files_crawler.py -t=True -db=True
+
+test-crawl:
+	@cd Data && python3 git_crawler.py --out_dir="../test/Diffs" --in_dir="../test/Repos"
+

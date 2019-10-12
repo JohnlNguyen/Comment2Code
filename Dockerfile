@@ -1,6 +1,11 @@
 FROM tensorflow/tensorflow:latest-gpu-py3
 ENV LANG=C.UTF-8 LC_ALL=C.UTF-8
 
+# Install git
+RUN apt-get update && \
+    apt-get upgrade -y && \
+    apt-get install -y git
+
 # Install Python packages
 RUN pip --no-cache-dir install --upgrade \
         keras \

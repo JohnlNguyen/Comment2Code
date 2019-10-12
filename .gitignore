@@ -111,3 +111,5 @@ Data/files-pre/
 Data/files-post/
 Data/output.diff
 .python_history
+test/Diffs/
+test/Repos/

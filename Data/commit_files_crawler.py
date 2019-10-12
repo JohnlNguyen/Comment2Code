@@ -52,7 +52,7 @@ def path_to_file(org, project):
 
 
 def create_file_name(org, project, file, commit, is_added=False):
-	file_name = "{}#{}#{}".format(org, project, commit, file.replace("/", "__"))
+	file_name = "{}#{}#{}#{}".format(org, project, commit, file.replace("/", "__"))
 	if is_added:
 		return Path(os.path.join("files-post", file_name))
 	else:
