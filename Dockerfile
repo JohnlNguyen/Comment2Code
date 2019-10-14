@@ -10,7 +10,8 @@ RUN apt-get update && \
 RUN pip --no-cache-dir install --upgrade \
         keras \
 		pygments \
-		whatthepatch
+		whatthepatch \
+		pandas
 
 # Open Ports for TensorBoard, Jupyter, SSH and Jupyter
 EXPOSE 6006

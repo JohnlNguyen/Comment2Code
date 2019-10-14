@@ -12,7 +12,7 @@ inspect-rand:
 	@cd Data && python3 inspect_data.py --rand=True
 
 test-extract:
-	@cd Data && python3 code_crawler.py -d="../test/Diffs" -db="True" -r="../test/Repos"
+	@cd Data && python3 code_crawler.py -d="../test/Diffs" -r="../test/Repos"
 
 test-crawl:
 	@cd Data && python3 git_crawler.py --out_dir="../test/Diffs" --in_dir="../test/Repos"  && \

@@ -2,20 +2,17 @@ import argparse
 import csv
 import linecache
 import os
+import pickle
 from collections import namedtuple
 from pathlib import Path
 
-from git_crawler import get_postcommit_file, get_precommit_file, ADDED_MODE, REMOVED_MODE
-
 import pygments
-from pygments.token import Comment, Text, Name, Keyword
-
+from git_crawler import get_postcommit_file, get_precommit_file, ADDED_MODE, REMOVED_MODE
 from lexer import strip_special_chars, build_lexer, lex_content
-import pickle
+from pygments.token import Comment, Text, Keyword
+from utils import is_a_comment_line, filter_comments, filter_code, is_a_code_line, contains_a_comment
 
-DEBUG = False
-
-CommentCodeRow = namedtuple('CommentCodeRow', ['comment', 'code', 'heuristic', 'file', 'lineno'])
+CommentCodeRow = namedtuple('CommentCodeRow', ['comment', 'code', 'heuristic', 'file', 'lineno', 'type'])
 
 
 class Heuristic(object):
@@ -29,6 +26,8 @@ class Heuristic(object):
 	END_OF_FUNCTION = "END_OF_FUNCTION"
 	SAME_LINE = "SAME_LINE"
 	NEXT_COMMENT = "NEXT_COMMENT"
+
+	LOOK_AHEAD_LINES = 11  # look ahead 10 lines
 
 	@classmethod
 	def should_stop(cls, tokens):
@@ -48,7 +47,7 @@ class Heuristic(object):
 
 
 def path_to_file(org, project):
-	return os.path.join("Repos", org, project)
+	return os.path.join(repos_dir, org, project)
 
 
 def create_file_name(org, project, file, commit, is_added=False):
@@ -59,38 +58,20 @@ def create_file_name(org, project, file, commit, is_added=False):
 		return Path(os.path.join("files-pre", file_name))
 
 
-def is_a_comment_line(ttypes):
-	return {Name, Keyword} not in ttypes and any([t in Comment for t in ttypes])
-
-
 def extract_code(start_lineno, file_name):
 	content = linecache.getlines(file_name.as_posix())
 	lexer = build_lexer('python')
 
-	# look backward to capture the entire comment in case we are the middle of a multiline comment
-	for line in reversed(content[:start_lineno]):
-		tokens = list(pygments.lex(line, lexer))
-		# if a line has no keyword, name token
-		# and has a comment token we assume it is a part of the initial comment
-		ttypes, _ = list(zip(*tokens))
-		if is_a_comment_line(ttypes):
-			start_lineno -= 1
-		else:
-			break
+	# content array is 0 index so need to shift down by 1
+	start_lineno = max(0, start_lineno - 1)
+	comment, comment_end = capture_comment(content, lexer, start_lineno)
 
-	to_extract_content = content[start_lineno:]
-	comment_len = 0
+	to_extract_content = content[comment_end:]
 	code_end = 1
-
 	heuristic = None
+
 	for i, line in enumerate(to_extract_content):
 		tokens = list(pygments.lex(line, lexer))
-		# if a line has no keyword, name token
-		# and has a comment token we assume it is a part of the initial comment
-		ttypes, _ = list(zip(*tokens))
-		if is_a_comment_line(ttypes):
-			comment_len += 1
-			continue
 
 		should_stop, reason = Heuristic.should_stop(tokens)
 		if should_stop:
@@ -99,23 +80,47 @@ def extract_code(start_lineno, file_name):
 			break
 
 	if heuristic == Heuristic.BLANK_LINE:
-		comment = to_extract_content[:comment_len]
+		code_end = min(code_end + Heuristic.LOOK_AHEAD_LINES, len(to_extract_content))
+		code = to_extract_content[:code_end]
 
-		# get the next 10 lines following the blank line
-		code = to_extract_content[comment_len: min(code_end + 11, len(to_extract_content))]
 		code = lex_content("".join(code), lexer)
 		comment = strip_special_chars("".join(comment))
-		if DEBUG:
-			print(comment, code)
-		return comment, code, heuristic
+	else:
+		code = to_extract_content[:code_end]
+		code = lex_content("".join(code), lexer)
+		comment = strip_special_chars("".join(comment))
 
-	comment = to_extract_content[:comment_len]
-	code = to_extract_content[comment_len:code_end + 1]
-	code = lex_content("".join(code), lexer)
-	comment = strip_special_chars("".join(comment))
-	if DEBUG:
-		print(comment, code)
+	# comment and code are on the same line case
+	if not comment:
+		ttypes = [t for t, _ in pygments.lex(content[start_lineno], lexer)]
+		if is_a_code_line(ttypes) and contains_a_comment(ttypes):
+			line = content[start_lineno].split("#")
+			code, comment = line[:-1], line[-1]
+			code = lex_content("".join(code), lexer)
+			comment = strip_special_chars("".join(comment))
 	return comment, code, heuristic
+
+
+def capture_comment(content, lexer, start):
+	# look backward to capture the entire comment in case we are the middle of a multiline comment
+	comment_start = comment_end = start
+	for line in reversed(content[:start]):
+		ttypes = [t for t, _ in pygments.lex(line, lexer)]
+		# if a line has no keyword, name or operator
+		# and has a comment token we assume it is a part of the initial comment
+		if is_a_comment_line(ttypes):
+			comment_start -= 1
+		else:
+			break
+
+	# look forward to capture the entire comment in case we are the middle of a multiline comment
+	for line in content[start:]:
+		ttypes = [t for t, _ in pygments.lex(line, lexer)]
+		if is_a_comment_line(ttypes):
+			comment_end += 1
+		else:
+			break
+	return content[comment_start:comment_end], comment_end
 
 
 def get_commit_files(csv_file_name: str):
@@ -144,9 +149,10 @@ def get_commit_files(csv_file_name: str):
 				)
 			lineno = int(row.comment_line_added if row.mode == ADDED_MODE else row.comment_line_removed)
 			comment, code, heuristic = extract_code(lineno, file_name)
+
 			comment_code_rows.append(
 				CommentCodeRow(comment=comment, code=code, heuristic=heuristic, file=file_name.as_posix(),
-							   lineno=lineno))
+							   lineno=lineno, type=row.change_type))
 	return comment_code_rows
 
 
@@ -161,10 +167,7 @@ def parse_args():
 	parser = argparse.ArgumentParser(description="Extract code from commit files")
 	parser.add_argument("-d", "--dir", required=False, default="Diffs",
 						help="Directory to extract code from")
-	parser.add_argument("-t", "--test", required=False, default=False,
-						help="Test mode or not")
-	parser.add_argument("-db", "--debug", required=False, default=False,
-						help="Debug or not")
+	parser.add_argument("-r", "--repos", required=False, default="Repos")
 	return parser.parse_args()
 
 
@@ -172,7 +175,10 @@ def main(dir_path):
 	diff_list = os.listdir(dir_path)
 	data = []
 	for csv_diff_file in diff_list:
-		data.extend(get_commit_files(os.path.join(dir_path, csv_diff_file)))
+		path = os.path.join(dir_path, csv_diff_file)
+		if os.path.isdir(path):
+			continue
+		data.extend(get_commit_files(path))
 
 	write_data(data)
 
@@ -180,9 +186,5 @@ def main(dir_path):
 if __name__ == '__main__':
 	args = parse_args()
 	diffs_dir = args.dir
-	DEBUG = args.debug
-	if args.test:
-		print("".join(linecache.getlines('../test/t.py')))
-		extract_code(2, Path('../test/t.py'))
-	else:
-		main(diffs_dir)
+	repos_dir = args.repos
+	main(diffs_dir)

@@ -1,18 +1,39 @@
-import os
-import sys
-import re
-import subprocess
+import argparse
 import csv
-import shutil
-from lexer import lex_file
-import whatthepatch
+import os
+import subprocess
+import sys
 import traceback
 from collections import namedtuple
-import argparse
+
+import pygments
+import whatthepatch
+from lexer import build_lexer
+from more_itertools import consecutive_groups
+from pygments.token import Name, Keyword, Operator
+from utils import is_a_comment_line, is_a_code_line, contains_a_comment
 
 Metadata = namedtuple('Metadata', ['org', 'project', 'commit_id'])
 ADDED_MODE = "ADDED"
 REMOVED_MODE = "REMOVED"
+
+
+class GitChange(object):
+	BOTH = "BOTH"
+	COMMENT = "COMMENT"
+	CODE = "CODE"
+
+	def __init__(self, old, new, line, ctype):
+		self.old = old
+		self.new = new
+		self.line = line
+		self.type = ctype
+
+	def __str__(self):
+		return "old={},new={},line={},type={}".format(self.old, self.new, self.line, self.type)
+
+	def __repr__(self):
+		return self.__str__()
 
 
 class CrawlMode(object):
@@ -38,7 +59,6 @@ class CrawlMode(object):
 			return False
 
 		lines = [change.line.strip() for change in diff.changes]
-
 		if self.mode == CrawlMode.COMMENT_IN_DIFF:
 			if not any([line.startswith("#") for line in lines]):
 				return False
@@ -80,48 +100,48 @@ def get_postcommit_file(path, commit_id, file, out_file):
 	return subprocess.call(['git', '-C', path, 'show', commit_id + ':' + file], stdout=out_file)
 
 
+def tag_change(all_changes, lexer, is_added=True):
+	changes = []
+	for group in consecutive_groups(all_changes, lambda c: c.new if is_added else c.old):
+		group = list(group)
+
+		assert len(group) > 0
+
+		change_to_keep = None
+		for i, change in enumerate(group):
+			ttypes = [t for t, _ in pygments.lex(change.line, lexer)]
+
+			if not change_to_keep and contains_a_comment(ttypes):
+				change_to_keep = GitChange(old=change.old, new=change.new, line=change.line, ctype=GitChange.COMMENT)
+			if change_to_keep and is_a_code_line(ttypes):
+				change_to_keep.type = GitChange.BOTH
+
+		if change_to_keep:
+			changes.append(change_to_keep)
+	return changes
+
+
 def parse_diff(diffs, meta, csv_out_file):
+	lexer = build_lexer('python')
 	for diff in diffs:
 		if not mode.is_valid_diff(diff):
 			continue
 
 		# filter out empty line changes
-		changes = [x for x in diff.changes if x.line and x.line.strip().startswith("#")]
-
+		changes = [c for c in diff.changes if c.line]
 		# ignoring line shift changes
 		added_changes = [x for x in changes if not bool(x.old) and bool(x.new)]
 		removed_changes = [x for x in changes if not bool(x.new) and bool(x.old)]
+
+		added_changes = tag_change(added_changes, lexer, is_added=True)
+		removed_changes = tag_change(removed_changes, lexer, is_added=False)
 
 		if diff.header.old_path != diff.header.new_path:
 			print("{}: Paths are different Old: {} New: {}".format(meta, diff.header.old_path, diff.header.new_path))
 			continue
 
-		removed_changes = remove_consecutive(removed_changes, is_added=False)
-		added_changes = remove_consecutive(added_changes, is_added=True)
 		write_to_csv(added_changes + removed_changes, csv_out_file, diff.header.new_path, meta)
 	return
-
-
-def remove_consecutive(changes, is_added=True):
-	"""
-	Removing consecutive comments, solving case when we have comments on multiple lines
-	"""
-	filtered_changes = []
-	if not changes:
-		return filtered_changes
-
-	if len(changes) == 1:
-		filtered_changes.extend(changes)
-	else:
-		filtered_changes.append(changes[0])
-		for i in range(1, len(changes)):
-			if is_added and (changes[i].new - changes[i - 1].new) == 1:
-				continue
-			if not is_added and (changes[i].old - changes[i - 1].old) == 1:
-				continue
-
-			filtered_changes.append(changes[i])
-	return filtered_changes
 
 
 def write_to_csv(changes, csv_file_name: str, file_changed: str, meta):
@@ -141,8 +161,18 @@ def write_to_csv(changes, csv_file_name: str, file_changed: str, meta):
 				continue
 
 			dups.add(change_id)
-			row = [meta.org, meta.project, meta.commit_id, mode, file_changed, change.old, change.new]
+			row = [meta.org, meta.project, meta.commit_id, mode, file_changed, change.old, change.new, change.type]
 			writer.writerow(row)
+
+
+def write_csv_header(out_dir, org, project):
+	out_file = os.path.join(out_dir, '{0}__{1}.csv'.format(org, project))
+	with open(out_file, 'w', encoding='utf8', newline='') as csv_file:
+		writer = csv.writer(csv_file, delimiter=',')
+		writer.writerow(
+			['organization', 'project', 'commit', 'mode', 'file_changed', 'comment_line_removed',
+			 'comment_line_added', 'change_type'])
+	return out_file
 
 
 def main(in_dir, out_dir):
@@ -154,13 +184,7 @@ def main(in_dir, out_dir):
 			try:
 				print("Processing {0}/{1}".format(org, project))
 				dir_path = os.path.join(in_dir, org, project)
-				out_file = os.path.join(out_dir, '{0}__{1}.csv'.format(org, project))
-				# write to csv
-				with open(out_file, 'w', encoding='utf8', newline='') as csv_file:
-					writer = csv.writer(csv_file, delimiter=',')
-					writer.writerow(
-						['organization', 'project', 'commit', 'mode', 'file_changed', 'comment_line_removed',
-						 'comment_line_added'])
+				out_file = write_csv_header(out_dir, org, project)
 
 				curr_branch = get_git_revision_hash(dir_path)
 				all_commit_ids = get_entire_history(dir_path, curr_branch)
