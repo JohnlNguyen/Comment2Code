@@ -3,6 +3,8 @@ import csv
 import linecache
 import os
 import pickle
+import traceback
+import sys
 from collections import namedtuple
 from pathlib import Path
 
@@ -175,11 +177,14 @@ def main(dir_path):
 	diff_list = os.listdir(dir_path)
 	data = []
 	for csv_diff_file in diff_list:
+		print("Extracting code for {}".format(csv_diff_file))
 		path = os.path.join(dir_path, csv_diff_file)
 		if os.path.isdir(path):
 			continue
-		data.extend(get_commit_files(path))
-
+		try:
+			data.extend(get_commit_files(path))
+		except Exception as e:
+			print("Exception processing", csv_diff_file, "--", traceback.print_exc(file=sys.stdout))
 	write_data(data)
 
 

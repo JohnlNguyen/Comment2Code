@@ -2,6 +2,12 @@
 crawl:
 	@cd Data && python3 git_crawler.py
 
+clone:
+	@cd Data && python3 cloner.py
+
+get-projects:
+	@cd Data && python3 clone_repos.py
+
 extract:
 	@cd Data && python3 code_crawler.py
 
