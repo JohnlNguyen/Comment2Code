@@ -1,26 +1,31 @@
 
 crawl:
-	@cd Data && python3 git_crawler.py
+	@cd src && python3 git_crawler.py
 
 clone:
-	@cd Data && sh cloner.sh
+	@cd src && sh cloner.sh
 
 get-projects:
-	@cd Data && python3 get_projects.py
+	@cd src && python3 get_projects.py
 
 extract:
-	@cd Data && python3 code_crawler.py
+	@cd src && python3 code_crawler.py
 
 inspect:
-	@cd Data && python3 inspect_data.py
+	@cd src && python3 inspect_data.py
+
+merge:
+	@cd src && python3 merge.py
 
 inspect-rand:
-	@cd Data && python3 inspect_data.py --rand=True
+	@cd src && python3 inspect_data.py --rand=True
+
+test: test-crawl test-extract
 
 test-extract:
-	@cd Data && python3 code_crawler.py -d="../test/Diffs" -r="../test/Repos"
+	@cd src && python3 code_crawler.py -d="./Diffs" -r="./Repos"
 
 test-crawl:
-	@cd Data && python3 git_crawler.py --out_dir="../test/Diffs" --in_dir="../test/Repos"  && \
-	python3 ../test/git_crawler_test.py
+	@cd src && python3 git_crawler.py --out_dir="./Diffs" --in_dir="./Repos"  && \
+	python3 test_git_crawler.py
 
