@@ -108,7 +108,7 @@ def tag_change(all_changes, lexer, is_added=True):
 		assert len(group) > 0
 
 		change_to_keep = None
-		for i, change in enumerate(group):
+		for change in group:
 			ttypes = [t for t, _ in pygments.lex(change.line, lexer)]
 
 			if not change_to_keep and contains_a_comment(ttypes):
@@ -189,13 +189,13 @@ def main(in_dir, out_dir):
 				curr_branch = get_git_revision_hash(dir_path)
 				all_commit_ids = get_entire_history(dir_path, curr_branch)
 				for ix, commit_id in enumerate(all_commit_ids):
-					with open("output.diff", "w", encoding="utf8") as of:
+					with open("../Data/output.diff", "w", encoding="utf8") as of:
 						is_last = ix == len(all_commit_ids) - 1
 						get_diff(dir_path, commit_id, of, relative_to_parent=not is_last)
 
 					# parsing
 					try:
-						with open("output.diff", "r", encoding="utf8", errors='ignore') as f:
+						with open("../Data/output.diff", "r", encoding="utf8", errors='ignore') as f:
 							text = f.read()
 						parse_diff(whatthepatch.parse_patch(text),
 								   Metadata(org=org, project=project, commit_id=commit_id), out_file)
@@ -208,9 +208,9 @@ def main(in_dir, out_dir):
 
 def parse_args():
 	parser = argparse.ArgumentParser(description="Crawl Git repos")
-	parser.add_argument("-i", "--in_dir", required=False, default="Repos",
+	parser.add_argument("-i", "--in_dir", required=False, default="../Data/Repos",
 						help="Directory to write to")
-	parser.add_argument("-o", "--out_dir", required=False, default="Diffs",
+	parser.add_argument("-o", "--out_dir", required=False, default="../Data/Diffs",
 						help="Repos to crawl through")
 	parser.add_argument("-m", "--mode", required=False, default=CrawlMode.COMMENT_IN_DIFF,
 						help="Mode to crawl")

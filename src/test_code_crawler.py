@@ -6,7 +6,7 @@ import linecache
 
 
 def tests():
-	path = Path('../test/extract_code_test_file.py')
+	path = Path('./test_file.py')
 	lexer = build_lexer()
 	comment, code, h = extract_code(1, path)
 	print("-" * 10)

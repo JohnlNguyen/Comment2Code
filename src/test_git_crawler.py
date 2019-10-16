@@ -6,7 +6,7 @@ from pathlib import Path
 
 
 def test_crawler():
-	out_dir = "../test/Diffs"
+	out_dir = "./Diffs"
 	out_file = os.path.join(out_dir, "johnlnguyen__banner.csv")
 	expect_file = os.path.join(out_dir, "git_crawler_expect.csv")
 
@@ -26,7 +26,7 @@ def test_crawler():
 			assert a['comment_line_added'] == e['comment_line_added']
 		else:
 			assert a['comment_line_removed'] == e['comment_line_removed']
-
+	print('Test passed')
 
 def run_tests():
 	test_crawler()

@@ -32,7 +32,7 @@ def print_info(data):
 if __name__ == '__main__':
 	args = parse_args()
 	pp = pprint.PrettyPrinter(indent=2)
-	with open(Path(os.getcwd(), 'comment_code.pkl').as_posix(), 'rb') as f:
+	with open(Path('../Data/comment_code.pkl').as_posix(), 'rb') as f:
 		data = pickle.load(f)
 		print_info(data)
 

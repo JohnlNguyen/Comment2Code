@@ -17,6 +17,7 @@ from utils import is_a_comment_line, filter_comments, filter_code, is_a_code_lin
 CommentCodeRow = namedtuple(
     'CommentCodeRow', ['comment', 'code', 'heuristic', 'file', 'lineno', 'type'])
 
+DATA_DIR = "../Data"
 
 class Heuristic(object):
     """
@@ -56,9 +57,9 @@ def path_to_file(org, project):
 def create_file_name(org, project, file, commit, is_added=False):
     file_name = "{}#{}#{}#{}".format(org, project, commit, file.replace("/", "__"))
     if is_added:
-        return Path(os.path.join("files-post", file_name))
+        return Path(os.path.join(DATA_DIR, "files-post", file_name))
     else:
-        return Path(os.path.join("files-pre", file_name))
+        return Path(os.path.join(DATA_DIR, "files-pre", file_name))
 
 
 def extract_code(start_lineno, file_name):
@@ -95,8 +96,8 @@ def extract_code(start_lineno, file_name):
 
     # comment and code are on the same line case
     if not comment:
-        if len(content) < start_lineno:
-            print("Length of content is less than start_line {}".format(start_lineno))
+        if len(content) - 1 < start_lineno:
+            # print("Length of content is less than start_line {}".format(file_name.as_posix()))
             return None, None, None
 
         ttypes = [t for t, _ in pygments.lex(content[start_lineno], lexer)]
@@ -167,10 +168,12 @@ def get_commit_files(csv_file_name: str):
 
 
 def write_data(rows, file_name):
-    with open('Pairs/{}.pkl'.format(file_name), 'wb') as f:
+    if not rows:
+        return 0
+    with open(DATA_DIR + '/Pairs/{}.pkl'.format(file_name), 'wb') as f:
         pickle.dump(rows, f)
-    print("Total Comment-Code Pairs written {}".format(len(rows)))
-    return
+    print("Comment-Code Pairs written {} for {}".format(len(rows), file_name))
+    return len(rows)
 
 
 def parse_args():
@@ -183,13 +186,15 @@ def parse_args():
 
 def main(dir_path):
     diff_list = os.listdir(dir_path)
+    total = 0
     for csv_diff_file in diff_list:
         print("Extracting code for {}".format(csv_diff_file))
         path = os.path.join(dir_path, csv_diff_file)
         try:
             data_rows = get_commit_files(path)
             data_file_name = os.path.splitext(csv_diff_file)[0]
-            write_data(data_rows, data_file_name)
+            total += write_data(data_rows, data_file_name)
+            print("Total Comment-Code Pairs written {}".format(total))
         except Exception as e:
             print("Exception processing", csv_diff_file, "--", traceback.print_exc(file=sys.stdout))
 
