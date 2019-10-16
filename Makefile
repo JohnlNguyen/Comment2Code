@@ -14,6 +14,9 @@ extract:
 inspect:
 	@cd src && python3 inspect_data.py
 
+inspect-100k:
+	@cd src && python3 inspect_data.py -f='comment_code_100k.pkl'
+
 merge:
 	@cd src && python3 merge.py
 

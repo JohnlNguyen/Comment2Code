@@ -23,14 +23,16 @@ class GitChange(object):
 	COMMENT = "COMMENT"
 	CODE = "CODE"
 
-	def __init__(self, old, new, line, ctype):
+	def __init__(self, old, new, commit_id, line, ctype):
 		self.old = old
 		self.new = new
+		self.commit_id = commit_id
 		self.line = line
 		self.type = ctype
 
 	def __str__(self):
-		return "old={},new={},line={},type={}".format(self.old, self.new, self.line, self.type)
+		return "commit={},old={},new={},line={},type={}".format(self.commit_id, self.old, self.new, self.line,
+																self.type)
 
 	def __repr__(self):
 		return self.__str__()
@@ -100,19 +102,20 @@ def get_postcommit_file(path, commit_id, file, out_file):
 	return subprocess.call(['git', '-C', path, 'show', commit_id + ':' + file], stdout=out_file)
 
 
-def tag_change(all_changes, lexer, is_added=True):
+def tag_change(all_changes, lexer, meta, is_added=True):
 	changes = []
 	for group in consecutive_groups(all_changes, lambda c: c.new if is_added else c.old):
 		group = list(group)
 
 		assert len(group) > 0
-
 		change_to_keep = None
 		for change in group:
 			ttypes = [t for t, _ in pygments.lex(change.line, lexer)]
-
+			commit_id = meta.new_version if is_added else meta.old_version
 			if not change_to_keep and contains_a_comment(ttypes):
-				change_to_keep = GitChange(old=change.old, new=change.new, line=change.line, ctype=GitChange.COMMENT)
+				change_to_keep = GitChange(old=change.old, new=change.new, commit_id=commit_id, line=change.line,
+										   ctype=GitChange.COMMENT)
+
 			if change_to_keep and is_a_code_line(ttypes):
 				change_to_keep.type = GitChange.BOTH
 
@@ -129,19 +132,31 @@ def parse_diff(diffs, meta, csv_out_file):
 
 		# filter out empty line changes
 		changes = [c for c in diff.changes if c.line]
+
 		# ignoring line shift changes
 		added_changes = [x for x in changes if not bool(x.old) and bool(x.new)]
 		removed_changes = [x for x in changes if not bool(x.new) and bool(x.old)]
 
-		added_changes = tag_change(added_changes, lexer, is_added=True)
-		removed_changes = tag_change(removed_changes, lexer, is_added=False)
+		added_changes = tag_change(added_changes, lexer, diff.header, is_added=True)
+		removed_changes = tag_change(removed_changes, lexer, diff.header, is_added=False)
+		groups = group_changes(removed_changes, added_changes)
 
+		print(len(groups))
 		if diff.header.old_path != diff.header.new_path:
 			print("{}: Paths are different Old: {} New: {}".format(meta, diff.header.old_path, diff.header.new_path))
 			continue
 
 		write_to_csv(added_changes + removed_changes, csv_out_file, diff.header.new_path, meta)
 	return
+
+
+def group_changes(removed, added):
+	# group by line number
+	groups = []
+	for r, a in zip(removed, added):
+		if r.old == a.new:
+			groups.append((r, a))
+	return groups
 
 
 def write_to_csv(changes, csv_file_name: str, file_changed: str, meta):
@@ -161,7 +176,7 @@ def write_to_csv(changes, csv_file_name: str, file_changed: str, meta):
 				continue
 
 			dups.add(change_id)
-			row = [meta.org, meta.project, meta.commit_id, mode, file_changed, change.old, change.new, change.type]
+			row = [meta.org, meta.project, change.commit_id, mode, file_changed, change.old, change.new, change.type]
 			writer.writerow(row)
 
 
