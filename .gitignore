@@ -105,15 +105,19 @@ venv.bak/
 
 .idea/
 .bash_history
-Data/Repos/
-Data/Diffs/
-Data/files-pre/
-Data/files-post/
-Data/output.diff
+data/Repos/
+data/Diffs/
+data/files-pre/
+data/files-post/
+data/output.diff
+
+src/Repos
+src/Diffs
+
 .python_history
 test/Diffs/
 test/Repos/
 data/*.pkl
+data/*.json
 Pairs/
-
 .vscode/

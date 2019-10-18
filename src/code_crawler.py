@@ -10,6 +10,7 @@ import subprocess
 import ray
 import itertools
 import pygments
+import json
 
 from collections import namedtuple
 from pathlib import Path
@@ -24,7 +25,7 @@ CommentCodeRow = namedtuple(
     'CommentCodeRow', ['before_comment', 'before_code', 'before_heuristic', 'after_comment', 'after_code', 'after_heuristic',
                        'before_path', 'after_path', 'before_line', 'after_line', 'type'])
 
-DATA_DIR = "../Data"
+DATA_DIR = "../data"
 
 
 class Heuristic(object):
@@ -146,45 +147,52 @@ def get_commit_file(path, commit_id, out_file):
 @ray.remote
 def get_commit_files_and_extract(csv_file_name, repo_dir):
     comment_code_rows = []
-    with open(csv_file_name, newline='') as csv_file:
-        reader = csv.reader(csv_file, delimiter=',')
-        # using csv header as namedtuple fields
-        DataRow = namedtuple('DataRow', next(reader))
 
-        for row in map(DataRow._make, reader):
-            full_bf_name, bf_name = create_file_name(
-                row.org, row.project, row.before_path, row.before_commit, is_added=False)
+    try:
+        print("Extracting code for {}".format(csv_file_name))
+        with open(csv_file_name, newline='') as csv_file:
+            reader = csv.reader(csv_file, delimiter=',')
+            # using csv header as namedtuple fields
+            DataRow = namedtuple('DataRow', next(reader))
 
-            full_af_name, af_name = create_file_name(
-                row.org, row.project, row.after_path, row.after_commit, is_added=True)
+            for row in map(DataRow._make, reader):
+                full_bf_name, bf_name = create_file_name(
+                    row.org, row.project, row.before_path, row.before_commit, is_added=False)
 
-            get_commit_file(
-                path=path_to_file(repo_dir, row.org, row.project),
-                commit_id=row.before_commit,
-                out_file=full_af_name.open('w'),
-            ),
-            get_commit_file(
-                path=path_to_file(repo_dir, row.org, row.project),
-                commit_id=row.after_commit,
-                out_file=full_bf_name.open('w')
-            )
+                full_af_name, af_name = create_file_name(
+                    row.org, row.project, row.after_path, row.after_commit, is_added=True)
 
-            # lineno = int(row.comment_line_added if row.mode == ADDED_MODE else row.comment_line_removed)
-            bf_comment, bf_code, bf_heuristic = extract_code(
-                int(row.added_line), full_af_name)
+                get_commit_file(
+                    path=path_to_file(repo_dir, row.org, row.project),
+                    commit_id=row.before_commit,
+                    out_file=full_af_name.open('w'),
+                ),
+                get_commit_file(
+                    path=path_to_file(repo_dir, row.org, row.project),
+                    commit_id=row.after_commit,
+                    out_file=full_bf_name.open('w')
+                )
 
-            af_comment, af_code, af_heuristic = extract_code(
-                int(row.rm_line), full_bf_name)
+                # lineno = int(row.comment_line_added if row.mode == ADDED_MODE else row.comment_line_removed)
+                bf_comment, bf_code, bf_heuristic = extract_code(
+                    int(row.added_line), full_af_name)
 
-            comment_code_rows.append(CommentCodeRow(bf_comment, bf_code, bf_heuristic, af_comment, af_code,
-                                                    af_heuristic, bf_name, af_name, row.added_line, row.rm_line, row.change_type))
+                af_comment, af_code, af_heuristic = extract_code(
+                    int(row.rm_line), full_bf_name)
+
+                comment_code_rows.append(CommentCodeRow(bf_comment, bf_code, bf_heuristic, af_comment, af_code,
+                                                        af_heuristic, bf_name, af_name, row.added_line, row.rm_line, row.change_type)._asdict())
+    except Exception as e:
+        print("Exception processing", csv_file_name, "--", traceback.print_exc(file=sys.stdout))
 
     return comment_code_rows
 
-
 def write_data(rows, file_name):
-    with open(DATA_DIR + '/Pairs/{}.pkl'.format(file_name), 'wb') as f:
-        pickle.dump(rows, f)
+    if not rows:
+        return 0
+
+    with open(DATA_DIR + '/Pairs/{}.json'.format(file_name), 'w+') as f:
+        json.dump(rows, f)
     print("Comment-Code Pairs written {} for {}".format(len(rows), file_name))
     return len(rows)
 
@@ -205,28 +213,18 @@ def main(dir_path, repo_dir):
 
     result_ids = []
     for idx, csv_diff_file in enumerate(diff_list):
-        print("Extracting code for {}".format(csv_diff_file))
         path = os.path.join(dir_path, csv_diff_file)
-        try:
-            result_ids.append(get_commit_files_and_extract.remote(path, repo_dir))
-        except Exception as e:
-            print("Exception processing", csv_diff_file,
-                  "--", traceback.print_exc(file=sys.stdout))
+        result_ids.append(get_commit_files_and_extract.remote(path, repo_dir))
 
-    ready_ids, remaining_ids = ray.wait(result_ids, num_returns=len(diff_list), timeout=1.0)
-    i = 0
-    while len(remaining_ids) != 0:
-        results = list(itertools.chain.from_iterable(ray.get(ready_ids)))
-        write_data(results, 'chunk_{}'.format(i))
-        total += len(results)
-        ready_ids, remaining_ids = ray.wait(result_ids, num_returns=len(diff_list), timeout=1.0)
-        i += 1
+    results = list(itertools.chain.from_iterable(ray.get(result_ids)))
+    write_data(results, 'code_comment_{}'.format(len(results)))
+    total += len(results)
 
 if __name__ == '__main__':
     args = parse_args()
     diffs_dir = args.dir
     repos_dir = args.repos
-    ray.init(num_cpus=4)
+    ray.init(num_cpus=os.cpu_count() // 2)
     import time
     s = time.perf_counter()
     main(diffs_dir, repos_dir)

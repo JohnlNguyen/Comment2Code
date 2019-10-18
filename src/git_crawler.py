@@ -87,7 +87,6 @@ def get_entire_history(path, curr_branch):
         'git', '-C', path, 'rev-list', curr_branch, '--first-parent', '--abbrev-commit'
     ]).decode("utf-8").rstrip("\n").split("\n")
 
-
 # Compute diff of commit ID, relative to previous commit if one exists
 def get_diff(path, commit_id, out_file, relative_to_parent=True):
     if relative_to_parent:
@@ -211,13 +210,13 @@ def main(in_dir, out_dir):
 
                 # iterate from newest to oldest version
                 for ix, commit_id in enumerate(all_commit_ids):
-                    with open("../Data/output.diff", "w", encoding="utf8") as of:
+                    with open("../data/output.diff", "w", encoding="utf8") as of:
                         is_last = ix == len(all_commit_ids) - 1
                         get_diff(dir_path, commit_id, of, relative_to_parent=not is_last)
 
                     # parsing
                     try:
-                        with open("../Data/output.diff", "r", encoding="utf8", errors='ignore') as f:
+                        with open("../data/output.diff", "r", encoding="utf8", errors='ignore') as f:
                             text = f.read()
 
                         total += parse_diff(whatthepatch.parse_patch(text),
@@ -234,9 +233,9 @@ def main(in_dir, out_dir):
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Crawl Git repos")
-    parser.add_argument("-i", "--in_dir", required=False, default="../Data/Repos",
+    parser.add_argument("-i", "--in_dir", required=False, default="../data/Repos",
                         help="Directory to write to")
-    parser.add_argument("-o", "--out_dir", required=False, default="../Data/Diffs",
+    parser.add_argument("-o", "--out_dir", required=False, default="../data/Diffs",
                         help="Repos to crawl through")
     parser.add_argument("-m", "--mode", required=False, default=CrawlMode.COMMENT_IN_DIFF,
                         help="Mode to crawl")
@@ -248,4 +247,8 @@ if __name__ == '__main__':
     in_dir = args.in_dir
     out_dir = args.out_dir
     mode.mode = args.mode
+    import time
+    s = time.perf_counter()
     main(in_dir, out_dir)
+    elapsed = time.perf_counter() - s
+    print(f"{__file__} executed in {elapsed:0.2f} seconds.")
