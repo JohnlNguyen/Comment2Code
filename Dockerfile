@@ -12,7 +12,8 @@ RUN pip --no-cache-dir install --upgrade \
 		pygments \
 		whatthepatch \
 		pandas \
-		requests
+		requests \
+		ray
 
 # Open Ports for TensorBoard, Jupyter, SSH and Jupyter
 EXPOSE 6006

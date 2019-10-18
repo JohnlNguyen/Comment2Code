@@ -115,3 +115,5 @@ test/Diffs/
 test/Repos/
 data/*.pkl
 Pairs/
+
+.vscode/

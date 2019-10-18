@@ -147,15 +147,11 @@ def parse_diff(diffs, meta, csv_out_file):
 
             groups = group_changes(removed_changes, added_changes)
 
-            if diff.header.old_path != diff.header.new_path:
-                print("{}: Paths are different Old: {} New: {}".format(
-                    meta, diff.header.old_path, diff.header.new_path))
-                continue
-
             if not groups:
                 continue
-            print(groups)
-            total += write_to_csv(groups, csv_out_file, diff.header.new_path, meta)
+
+            total += write_to_csv(groups, csv_out_file, diff.header.old_path,
+                                  diff.header.new_path, meta)
     return total
 
 
@@ -164,7 +160,7 @@ def group_changes(removed, added):
     return [(r, a) for r, a in zip(removed, added) if r.old == a.new]
 
 
-def write_to_csv(changes, csv_file_name: str, file_changed: str, meta):
+def write_to_csv(changes, csv_file_name, old_path, new_path, meta):
     dups = set()
     with open(csv_file_name, 'a', newline='') as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
@@ -173,18 +169,14 @@ def write_to_csv(changes, csv_file_name: str, file_changed: str, meta):
             # mode = ADDED_MODE if change.new else REMOVED_MODE
             # lineno = change.new if mode == ADDED_MODE else change.old
 
-            # remove duplicates using id in set
-            # before_id#after_id#file_changed
-            change_id = "{}#{}#{}".format(
-                before.commit_id,
-                after.commit_id,
-                file_changed)
+            # remove duplicates
+            change_id = "{}#{}#{}#{}".format(before.commit_id, after.commit_id, old_path, new_path)
             if change_id in dups:
                 continue
-
             dups.add(change_id)
-            row = [meta.org, meta.project, before.commit_id, after.commit_id,
-                   before.old, after.new, after.type, meta.commit]
+
+            row = [meta.org, meta.project, before.commit_id, old_path,
+                   after.commit_id, new_path, before.old, after.new, after.type, meta.commit]
             writer.writerow(row)
     return len(dups)
 
@@ -194,7 +186,8 @@ def write_csv_header(out_dir, org, project):
     with open(out_file, 'w', encoding='utf8', newline='') as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
         writer.writerow(
-            ['organization', 'project', 'before_commit', 'after_commit', 'rm_line', 'added_line', 'change_type', 'commit'])
+            ['org', 'project', 'before_commit', 'before_path',
+             'after_commit', 'after_path', 'rm_line', 'added_line', 'change_type', 'commit'])
     return out_file
 
 
@@ -212,6 +205,7 @@ def main(in_dir, out_dir):
                 out_file = write_csv_header(out_dir, org, project)
 
                 curr_branch = get_git_revision_hash(dir_path)
+
                 # all commit ids from newest to oldest
                 all_commit_ids = get_entire_history(dir_path, curr_branch)
 
@@ -236,6 +230,7 @@ def main(in_dir, out_dir):
                       "--", traceback.print_exc(file=sys.stdout))
 
     print('Total {}'.format(total))
+
 
 def parse_args():
     parser = argparse.ArgumentParser(description="Crawl Git repos")
