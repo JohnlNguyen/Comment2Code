@@ -1,0 +1,28 @@
+transformer:
+  embed_dim: 256
+  hidden_dim: 256
+  ff_dim: 2048
+  num_layers: 6
+  attention_dim: 512
+  num_heads: 8
+  dropout_rate: 0.1
+  warmup: 4000
+  base_lr: 2.0
+baseline:
+  embed_dim: 512
+  hidden_dim: 512
+  num_layers: 2
+  dropout_rate: 0.5
+data:
+  max_batch_size: 5000
+  max_sample_size: 250
+vocabulary:
+  vocab_cutoff: 10
+  split_tokens: "bpe"
+  split_file: true
+  bpe_limit: 5000
+training:
+  num_epochs: 100
+  print_freq: 10
+  model: "transformer"
+  lr: 0.001
