@@ -5,6 +5,7 @@ import random
 import yaml
 import argparse
 import time
+import pprint
 
 import numpy as np
 import tensorflow as tf
@@ -16,9 +17,9 @@ import util
 
 random.seed(41)
 config = yaml.safe_load(open("config.yml"))
+pp = pprint.PrettyPrinter(indent=2)
 
-#os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-
+# os.environ["CUDA_VISIBLE_DEVICES"] = "1"
 
 def main():
     # Extract arguments
@@ -26,7 +27,8 @@ def main():
     ap.add_argument("data", help="Path to training data")
     ap.add_argument("-v", "--vocabulary", required=False, help="Path to vocabulary files")
     args = ap.parse_args()
-    print("Using configuration:", config)
+    print("Using configuration: ")
+    pp.pprint(config)
     data = DataReader(config["data"], config["vocabulary"], args.data, vocab_file=args.vocabulary)
     if config["training"]["model"] == "transformer":
         model = TransformerModel(config["transformer"], data.vocabulary.vocab_dim)
@@ -34,13 +36,13 @@ def main():
         model = BaselineModel(config["baseline"], data.vocabulary.vocab_dim)
     train(model, data)
 
-
 def train(model, data):
     # Declare the learning rate as a function to include it in the saved state
     def get_learning_rate():
         if "transformer" not in config["training"]["model"]:
             return tf.constant(config["training"]["lr"])
-        return tf.constant(4e-4)
+        return util.compute_transformer_learning_rate(config["transformer"]["base_lr"], config["transformer"]["hidden_dim"], config["transformer"]["warmup"], total_batches)
+
     optimizer = tf.optimizers.Adam(get_learning_rate)
 
     total_batches = 0
@@ -74,9 +76,10 @@ def train(model, data):
             metrics.add_observation(batch[-1], preds, loss)
             if mbs % config["training"]["print_freq"] == 0:
                 lr = optimizer.get_config()['learning_rate'].numpy()
-                print("MB: {0}, lr: {1:.4f}: samples: {2:,}, entropy: {3}, acc: {4}".format(
-                    mbs, lr, *metrics.get_stats()))
+                print("MB: {0}, lr: {1:.4f}: samples: {2:,}, entropy: {3}, acc: {4} loss: {5:.4f}".format(
+                    mbs, lr, *metrics.get_stats(), loss))
                 metrics.flush()
+
         # Run a validation pass at the end of every epoch
         print("Validation: samples: {0}, entropy: {1}, accs: {2}".format(*eval(model, data)))
     print("Test: samples: {0}, entropy: {1}, accs: {2}".format(*eval(model, data, validate=False)))
