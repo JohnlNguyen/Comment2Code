@@ -109,7 +109,9 @@ class TransformerModel(tf.keras.layers.Layer):
 		
 		# Max-pool states and project to classify
 		states = tf.reduce_max(states, 1)
-		return self.classify(states)
+		preds = self.classify(states)
+		preds = tf.squeeze(preds, -1)
+		return preds
 
 class BaselineModel(tf.keras.layers.Layer):
 	def __init__(self, model_config, token_vocab_dim):

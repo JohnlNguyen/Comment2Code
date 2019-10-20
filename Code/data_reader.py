@@ -95,6 +95,8 @@ class DataReader(object):
 		buffer = []
 		seq = []
 		for l in batch_data:
+			if l["before_comment"] == l["after_comment"] or (l["type"] == "BOTH" and l["before_code"] == l["after_code"]):
+				continue
 			label = round(random.random())
 			if label == 0:
 				if l["type"] == "BOTH":

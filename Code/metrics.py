@@ -19,7 +19,7 @@ class MetricsTracker():
 		# Compute overall statistics, gathering types and predictions accordingly
 		num_samples = targets.shape[0]
 		self.entropy += log_2_e * loss.numpy() * num_samples
-		self.acc += tf.reduce_sum(tf.metrics.sparse_categorical_accuracy(targets, predictions)).numpy()
+		self.acc += (num_samples * tf.metrics.binary_accuracy(targets, predictions)).numpy()
 		self.acc_count += num_samples
 		self.total_samples += int(num_samples)
 	
