@@ -13,7 +13,8 @@ RUN pip --no-cache-dir install --upgrade \
 		whatthepatch \
 		pandas \
 		requests \
-		ray
+		ray \
+		sklearn
 
 # Open Ports for TensorBoard, Jupyter, SSH and Jupyter
 EXPOSE 6006
