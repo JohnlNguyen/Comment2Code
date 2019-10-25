@@ -5,21 +5,22 @@ import sys
 import re
 import random
 import json
+
 random.seed(42)
 
 import yaml
+
 config = yaml.safe_load(open("config.yml"))
 
 from vocabulary import VocabularyBuilder
 from pdb import set_trace
-
+from collections import namedtuple
 import tensorflow as tf
-
-# import jsonlines
-import csv
 
 
 class DataReader(object):
+    BothBatch = namedtuple('BothBatch', 'b_tokens a_tokens code_tokens label')
+    Batch = namedtuple('Batch', 'comment_tokens code_tokens label')
 
     def __init__(self, data_config, vocab_config, data_root, vocab_file):
         self.config = data_config
@@ -31,6 +32,11 @@ class DataReader(object):
         if sum(len(l) for l in self.valid_data) > 1000000:
             random.shuffle(self.valid_data)
             self.valid_data = self.valid_data[:250]
+
+        self.sample_len = lambda l: len(l[0]) + len(l[1])
+
+        # stats for data
+        self.long_sample_count = 0
 
     def get_vocab(self, vocab_config, vocab_file):
         if vocab_file != None:
@@ -57,40 +63,100 @@ class DataReader(object):
             test_data = [k for l in data[int(0.95 * len(data))] for k in l]
             return train_data, valid_data, test_data
         else:
-            """normal"""
             with open(data_root, encoding='utf-8', errors='ignore') as f:
                 data = json.load(f)
-            """dcs"""
-            # data = []
-            # with jsonlines.open(data_root) as f:
-            #     data = [line for line in f]
-            """quora"""
-            # data = []
-            # with open(data_root, newline='') as csv_file:
-            #     reader = csv.DictReader(csv_file, delimiter=',')
-            #     data = [row for row in reader]
 
-            # train_data = data[:int(0.9 * len(data))]
-            # valid_data = data[int(0.9 * len(data)):int(0.95 * len(data))]
-            # test_data = data[int(0.95 * len(data))]
+            # subset data
+            percent = float(self.config['percent'])
+            data = data[:int(len(data) * percent)]
+
+            # only using both changes
+            data = [x for x in data if x['type'] == "BOTH"]
 
             train_data = data[:int(0.95 * len(data))]
-            valid_data = data[int(0.95 * len(data)):]
+            valid_data = data[int(0.95 * len(data)): int(len(data))]
             test_data = []
             return train_data, valid_data, test_data
 
-    def batcher(self, mode="training"):
-        ds = tf.data.Dataset.from_generator(self.batch_generator, output_types=(
-            tf.int32, tf.float32, tf.int32, tf.float32, tf.float32), args=(mode,))
+    def batcher(self, mode="training", input_type="both"):
+        if input_type == "both":
+            # b_indices, b_masks, a_indices, a_masks, c_indices, c_masks, label
+            ds = tf.data.Dataset.from_generator(self.batch_generator, output_types=(
+                tf.int32, tf.float32, tf.int32, tf.float32, tf.int32, tf.float32, tf.float32), args=(mode, input_type,))
+        else:
+            # comment_indices, comment_masks, code_indices, code_masks, label
+            ds = tf.data.Dataset.from_generator(self.batch_generator, output_types=(
+                tf.int32, tf.float32, tf.int32, tf.float32, tf.float32), args=(mode, input_type,))
+
         ds = ds.prefetch(1)
         return ds
 
     def stats(self):
+        print("Long Seq {}".format(self.long_sample_count))
         print("Num OOV {}".format(self.vocabulary.num_oov))
 
-    def batch_generator(self, mode="training"):
+    def make_batch(self, buffer, input_type="both"):
+
+        if input_type == "both":
+            sample_len = lambda x: len(x.b_tokens) + len(x.a_tokens) + len(x.code_tokens)
+
+            pivot = sample_len(random.choice(buffer))
+            buffer = sorted(buffer, key=lambda b: abs(sample_len(b) - pivot))
+
+            batch = [[], [], [], []]
+            max_seq_len = 0
+            for ix, seq in enumerate(buffer):
+                max_seq_len = max(max_seq_len, sample_len(seq))
+                if max_seq_len * (len(batch[0]) + 1) > config['data']['max_batch_size']:
+                    break
+
+                batch[0].append([self.vocabulary.vocab_key(s) for s in seq.b_tokens])
+                batch[1].append([self.vocabulary.vocab_key(s) for s in seq.a_tokens])
+                batch[2].append([self.vocabulary.vocab_key(s) for s in seq.code_tokens])
+                batch[3].append(seq.label)
+
+            b_comment_indices = tf.ragged.constant(batch[0], dtype="int32").to_tensor()
+            b_comment_masks = tf.sequence_mask([len(l) for l in batch[0]], dtype=tf.dtypes.float32)
+
+            a_comment_indices = tf.ragged.constant(batch[1], dtype="int32").to_tensor()
+            a_comment_masks = tf.sequence_mask([len(l) for l in batch[1]], dtype=tf.dtypes.float32)
+
+            code_indices = tf.ragged.constant(batch[2], dtype="int32").to_tensor()
+            code_masks = tf.sequence_mask([len(l) for l in batch[2]], dtype=tf.dtypes.float32)
+
+            buffer = buffer[len(batch[0]):]
+            batch = (b_comment_indices, b_comment_masks, a_comment_indices, a_comment_masks, code_indices,
+                     code_masks, tf.constant(batch[3]))
+            return buffer, batch
+        else:
+            sample_len = lambda x: len(x.comment_tokens) + len(x.code_tokens)
+            max_seq_len = 0
+            batch = [[], [], []]
+            for ix, seq in enumerate(buffer):
+                max_seq_len = max(max_seq_len, sample_len(seq))
+                if max_seq_len * (len(batch[0]) + 1) > config['data']['max_batch_size']:
+                    break
+
+                batch[0].append([self.vocabulary.vocab_key(s) for s in seq.comment_tokens])
+                batch[1].append([self.vocabulary.vocab_key(s) for s in seq.code_tokens])
+                batch[2].append(seq.label)
+
+            comment_indices = tf.ragged.constant(batch[0], dtype="int32").to_tensor()
+            comment_masks = tf.sequence_mask([len(l) for l in batch[0]], dtype=tf.dtypes.float32)
+
+            code_indices = tf.ragged.constant(batch[1], dtype="int32").to_tensor()
+            code_masks = tf.sequence_mask([len(l) for l in batch[1]], dtype=tf.dtypes.float32)
+            buffer = buffer[len(batch[0]):]
+            batch = (comment_indices, comment_masks, code_indices,
+                     code_masks, tf.constant(batch[2]))
+            return buffer, batch
+
+    def batch_generator(self, mode="training", input_type="both"):
         if isinstance(mode, bytes):
             mode = mode.decode("utf-8")
+        if isinstance(input_type, bytes):
+            input_type = input_type.decode("utf-8")
+
         if mode == "training":
             batch_data = self.train_data
             random.shuffle(batch_data)
@@ -99,68 +165,90 @@ class DataReader(object):
         else:
             batch_data = self.test_data
 
-        sample_len = lambda l: len(l[0]) + len(l[1])
-
-        def make_batch(buffer):
-            pivot = sample_len(random.choice(buffer))
-            buffer = sorted(buffer, key=lambda b: abs(sample_len(b) - pivot))
-            batch = [[], [], []]
-            max_seq_len = 0
-            for ix, seq in enumerate(buffer):
-                max_seq_len = max(max_seq_len, sample_len(seq))
-                if max_seq_len * (len(batch[0]) + 1) > config['data']['max_batch_size']:
-                    break
-
-                batch[0].append([self.vocabulary.vocab_key(s) for s in seq[0]])
-                batch[1].append([self.vocabulary.vocab_key(s) for s in seq[1]])
-                batch[2].append(seq[2])
-            comment_indices = tf.ragged.constant(batch[0], dtype="int32").to_tensor()
-            comment_masks = tf.sequence_mask([len(l) for l in batch[0]], dtype=tf.dtypes.float32)
-            code_indices = tf.ragged.constant(batch[1], dtype="int32").to_tensor()
-            code_masks = tf.sequence_mask([len(l) for l in batch[1]], dtype=tf.dtypes.float32)
-            buffer = buffer[len(batch[0]):]
-            batch = (comment_indices, comment_masks, code_indices,
-                     code_masks, tf.constant(batch[2]))
-            return buffer, batch
-
         buffer = []
         for line in batch_data:
-            if line["type"] != "BOTH":
-                continue
             label = round(random.random())
 
-            """Normal"""
-            if label == 0:
-                if line["type"] == "BOTH":
-                    swap_dir = round(random.random())
-                    comment, code = ("before_comment", "after_code") if swap_dir == 0 else (
-                        "after_comment", "before_code")
-                else:
-                    comment, code = "before_comment", "after_code"
+			# using both before and after comment
+            if input_type == "both":
+                item = self.gen_both_batch(line, label)
+
+                if len(item.code_tokens) + min(len(item.b_tokens), len(item.a_tokens)) > config['data'][
+                        'max_sample_size']:
+                    self.long_sample_count += 1
+                    continue
+
+                buffer.append(item)
+                if sum(len(l.b_tokens) + len(l.a_tokens) + len(l.code_tokens) for l in buffer) > 50 * config['data']['max_batch_size']:
+                    buffer, batch = self.make_batch(buffer, input_type)
+                    yield batch
+			# swap with other a random point
+            elif input_type == "random":
+                comment, code = DataReader.swap_keys(label, line)
+                swap = random.choice(self.train_data)
+                line[code] = swap[code] if label == 0 else line[code]
+                comment_tokens, code_tokens = self.tokenize(comment, code)
+
+                if len(code_tokens) + len(comment_tokens) > config['data']['max_sample_size']:
+                    self.long_sample_count += 1
+                    continue
+
+                buffer.append(DataReader.Batch(comment_tokens, code_tokens, label))
+                if sum(len(l.comment_tokens) + len(l.code_tokens) for l in buffer) > 50 * config['data']['max_batch_size']:
+                    buffer, batch = self.make_batch(buffer, input_type)
+                    yield batch
+			# swap before with after comment
             else:
-                if line["type"] == "BOTH":
-                    swap_dir = round(random.random())
-                    comment, code = ("before_comment", "before_code") if swap_dir == 0 else (
-                        "after_comment", "after_code")
-                else:
-                    comment, code = "after_comment", "after_code"
+                comment_k, code_k = DataReader.swap_keys(label, line)
+                comment, code = line[comment_k], line[code_k]
+                comment_tokens, code_tokens = self.tokenize(comment, code)
 
-            """swap with other data points"""
-            # swap = random.choice(self.train_data)
-            # line[code] = swap[code] if label == 0 else line[code]
+                if len(code_tokens) + len(comment_tokens) > config['data']['max_sample_size']:
+                    self.long_sample_count += 1
+                    continue
+                buffer.append(DataReader.Batch(comment_tokens, code_tokens, label))
 
-            comment_tokens = self.vocabulary.tokenize_code(line[comment].replace("\n", "\\n"))
-            code_tokens = self.vocabulary.tokenize_code("\\n".join(line[code]).replace("\n", "\\n"))
-
-            if len(code_tokens) + len(comment_tokens) > config['data']['max_sample_size']:
-                continue
-            buffer.append((comment_tokens, code_tokens, label))
-            if sum(sample_len(l) for l in buffer) > 50 * config['data']['max_batch_size']:
-                buffer, batch = make_batch(buffer)
-                yield batch
+                if sum(len(l.comment_tokens) + len(l.code_tokens) for l in buffer) > 50 * config['data']['max_batch_size']:
+                    buffer, batch = self.make_batch(buffer, input_type)
+                    yield batch
 
         while buffer:
-            buffer, batch = make_batch(buffer)
+            buffer, batch = self.make_batch(buffer, input_type)
             if not batch:
                 break
             yield batch
+
+    def gen_both_batch(self, line, label):
+
+        b_comment, a_comment = line['before_comment'], line['after_comment']
+        line = random.choice(self.train_data)
+        code = line['before_code'] if label == 0 else line['after_code']
+
+        b_comment_tokens = self.vocabulary.tokenize(b_comment.replace("\n", "\\n"))
+        a_comment_tokens = self.vocabulary.tokenize(b_comment.replace("\n", "\\n"))
+        code_tokens = self.vocabulary.tokenize("\\n".join(code).replace("\n", "\\n"))
+
+        return DataReader.BothBatch(b_comment_tokens, a_comment_tokens, code_tokens, label)
+
+    def tokenize(self, comment, code):
+        comment_tokens = self.vocabulary.tokenize(comment.replace("\n", "\\n"))
+        code_tokens = self.vocabulary.tokenize("\\n".join(code).replace("\n", "\\n"))
+        return comment_tokens, code_tokens
+
+    @classmethod
+    def swap_keys(cls, label, line):
+        if label == 0:
+            if line["type"] == "BOTH":
+                swap_dir = round(random.random())
+                comment, code = ("before_comment", "after_code") if swap_dir == 0 else (
+                    "after_comment", "before_code")
+            else:
+                comment, code = "before_comment", "after_code"
+        else:
+            if line["type"] == "BOTH":
+                swap_dir = round(random.random())
+                comment, code = ("before_comment", "before_code") if swap_dir == 0 else (
+                    "after_comment", "after_code")
+            else:
+                comment, code = "after_comment", "after_code"
+        return comment, code

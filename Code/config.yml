@@ -8,6 +8,16 @@ transformer:
   dropout_rate: 0.1
   warmup: 4000
   base_lr: 2.0
+multimodal:
+  embed_dim: 256
+  hidden_dim: 256
+  ff_dim: 2048
+  num_layers: 6
+  attention_dim: 512
+  num_heads: 8
+  dropout_rate: 0.1
+  warmup: 4000
+  base_lr: 2.0
 baseline:
   embed_dim: 512
   hidden_dim: 512
@@ -16,6 +26,7 @@ baseline:
 data:
   max_batch_size: 5000
   max_sample_size: 250
+  percent: .5
 vocabulary:
   vocab_cutoff: 10
   split_tokens: "bpe"
@@ -24,5 +35,6 @@ vocabulary:
 training:
   num_epochs: 10
   print_freq: 5
-  model: "transformer"
+  model: "multimodal"
   lr: 0.0001
+  input_type: "both"
