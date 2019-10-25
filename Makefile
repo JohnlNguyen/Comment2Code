@@ -1,4 +1,13 @@
 
+train:
+	@cd Code && python3 code_comment_aligner.py ../data/Pairs/code_comment_90742.json -v vocab
+
+train-dcs:
+	@cd Code && python3 code_comment_aligner.py ../data/python/final/jsonl/train/python_train_9.jsonl -v dcs_vocab
+
+clean:
+	@cd src && python3 clean.py
+
 crawl:
 	@cd src && python3 git_crawler.py
 

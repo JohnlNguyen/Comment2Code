@@ -15,6 +15,9 @@ from pdb import set_trace
 
 import tensorflow as tf
 
+# import jsonlines
+import csv
+
 
 class DataReader(object):
 
@@ -52,20 +55,38 @@ class DataReader(object):
             train_data = [k for l in data[:int(0.9 * len(data))] for k in l]
             valid_data = [k for l in data[int(0.9 * len(data)):int(0.95 * len(data))] for k in l]
             test_data = [k for l in data[int(0.95 * len(data))] for k in l]
+            return train_data, valid_data, test_data
         else:
+            """normal"""
             with open(data_root, encoding='utf-8', errors='ignore') as f:
                 data = json.load(f)
-            train_data = data[:int(0.9 * len(data))]
-            valid_data = data[int(0.9 * len(data)):int(0.95 * len(data))]
-            test_data = data[int(0.95 * len(data))]
+            """dcs"""
+            # data = []
+            # with jsonlines.open(data_root) as f:
+            #     data = [line for line in f]
+            """quora"""
+            # data = []
+            # with open(data_root, newline='') as csv_file:
+            #     reader = csv.DictReader(csv_file, delimiter=',')
+            #     data = [row for row in reader]
+
+            # train_data = data[:int(0.9 * len(data))]
+            # valid_data = data[int(0.9 * len(data)):int(0.95 * len(data))]
+            # test_data = data[int(0.95 * len(data))]
+
+            train_data = data[:int(0.95 * len(data))]
+            valid_data = data[int(0.95 * len(data)):]
+            test_data = []
             return train_data, valid_data, test_data
-        return train_data, valid_data, test_data
 
     def batcher(self, mode="training"):
         ds = tf.data.Dataset.from_generator(self.batch_generator, output_types=(
             tf.int32, tf.float32, tf.int32, tf.float32, tf.float32), args=(mode,))
         ds = ds.prefetch(1)
         return ds
+
+    def stats(self):
+        print("Num OOV {}".format(self.vocabulary.num_oov))
 
     def batch_generator(self, mode="training"):
         if isinstance(mode, bytes):
@@ -89,6 +110,7 @@ class DataReader(object):
                 max_seq_len = max(max_seq_len, sample_len(seq))
                 if max_seq_len * (len(batch[0]) + 1) > config['data']['max_batch_size']:
                     break
+
                 batch[0].append([self.vocabulary.vocab_key(s) for s in seq[0]])
                 batch[1].append([self.vocabulary.vocab_key(s) for s in seq[1]])
                 batch[2].append(seq[2])
@@ -102,35 +124,38 @@ class DataReader(object):
             return buffer, batch
 
         buffer = []
-        seq = []
         for line in batch_data:
-
             if line["type"] != "BOTH":
                 continue
-
-            # label = 1 == aligned
-            # label = 0 == not
             label = round(random.random())
+
+            """Normal"""
             if label == 0:
                 if line["type"] == "BOTH":
                     swap_dir = round(random.random())
-                    k, v = ("before_comment", "after_code") if swap_dir == 0 else (
+                    comment, code = ("before_comment", "after_code") if swap_dir == 0 else (
                         "after_comment", "before_code")
                 else:
-                    k, v = "before_comment", "after_code"
+                    comment, code = "before_comment", "after_code"
             else:
                 if line["type"] == "BOTH":
                     swap_dir = round(random.random())
-                    k, v = ("before_comment", "before_code") if swap_dir == 0 else (
+                    comment, code = ("before_comment", "before_code") if swap_dir == 0 else (
                         "after_comment", "after_code")
                 else:
-                    k, v = "after_comment", "after_code"
-            comment_tokens = self.vocabulary.tokenize(line[k].replace("\n", "\\n"))
-            code_tokens = self.vocabulary.tokenize("\\n".join(line[v]).replace("\n", "\\n"))
+                    comment, code = "after_comment", "after_code"
+
+            """swap with other data points"""
+            # swap = random.choice(self.train_data)
+            # line[code] = swap[code] if label == 0 else line[code]
+
+            comment_tokens = self.vocabulary.tokenize_code(line[comment].replace("\n", "\\n"))
+            code_tokens = self.vocabulary.tokenize_code("\\n".join(line[code]).replace("\n", "\\n"))
+
             if len(code_tokens) + len(comment_tokens) > config['data']['max_sample_size']:
                 continue
             buffer.append((comment_tokens, code_tokens, label))
-            if sum(sample_len(line) for line in buffer) > 50 * config['data']['max_batch_size']:
+            if sum(sample_len(l) for l in buffer) > 50 * config['data']['max_batch_size']:
                 buffer, batch = make_batch(buffer)
                 yield batch
 

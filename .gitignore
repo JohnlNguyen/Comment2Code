@@ -121,3 +121,4 @@ data/*.pkl
 data/*.json
 Pairs/
 .vscode/
+data/python

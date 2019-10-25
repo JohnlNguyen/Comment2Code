@@ -6,10 +6,12 @@ import yaml
 import argparse
 import time
 import pprint
+import pickle
 
 import numpy as np
 import tensorflow as tf
 
+from pdb import set_trace
 from transformer import Transformer
 from metrics import MetricsTracker
 from data_reader import DataReader
@@ -20,6 +22,7 @@ config = yaml.safe_load(open("config.yml"))
 pp = pprint.PrettyPrinter(indent=2)
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
+
 
 def main():
     # Extract arguments
@@ -36,12 +39,17 @@ def main():
         model = BaselineModel(config["baseline"], data.vocabulary.vocab_dim)
     train(model, data)
 
+
 def train(model, data):
     # Declare the learning rate as a function to include it in the saved state
     def get_learning_rate():
         if "transformer" not in config["training"]["model"]:
             return tf.constant(config["training"]["lr"])
-        return util.compute_transformer_learning_rate(config["transformer"]["base_lr"], config["transformer"]["hidden_dim"], config["transformer"]["warmup"], total_batches)
+        return tf.constant(config["training"]["lr"])
+        # return
+        # util.compute_transformer_learning_rate(config["transformer"]["base_lr"],
+        # config["transformer"]["hidden_dim"], config["transformer"]["warmup"],
+        # total_batches)
 
     optimizer = tf.optimizers.Adam(get_learning_rate)
 
@@ -76,53 +84,69 @@ def train(model, data):
             metrics.add_observation(batch[-1], preds, loss)
             if mbs % config["training"]["print_freq"] == 0:
                 lr = optimizer.get_config()['learning_rate'].numpy()
-                print("MB: {0}, lr: {1:.4f}: samples: {2:,}, entropy: {3}, acc: {4} loss: {5:.4f}".format(
+                print("MB: {0}, lr: {1:.1e}: samples: {2:,}, entropy: {3}, acc: {4} loss: {5:.4f}".format(
                     mbs, lr, *metrics.get_stats(), loss))
                 metrics.flush()
 
         # Run a validation pass at the end of every epoch
-        print("Validation: samples: {0}, entropy: {1}, accs: {2}".format(*eval(model, data)))
+        print("Validation: samples: {0}, entropy: {1}, accs: {2}".format(
+            *eval(model, data, save=True)))
     print("Test: samples: {0}, entropy: {1}, accs: {2}".format(*eval(model, data, validate=False)))
 
 
-def eval(model, data, validate=True):
+def eval(model, data, validate=True, save=False):
     mbs = 0
     metrics = MetricsTracker()
+    valid_preds, valid_target = np.array([]), np.array([])
     for batch in data.batcher(mode="valid" if validate else "test"):
         mbs += 1
         preds = model(*batch[:-1])
         metrics.add_observation(batch[-1], preds, get_loss(batch[-1], preds))
+        valid_preds = np.append(valid_preds, preds.numpy())
+        valid_target = np.append(valid_target, batch[-1].numpy())
+
+    if save:
+        with open('valid_before_after.pkl', 'wb') as f:
+            pickle.dump([list(valid_preds), list(valid_target)], f)
     return metrics.get_stats()
 
 
 def get_loss(targets, predictions):
+    """log loss"""
     return tf.reduce_mean(-tf.math.log(1e-6 + predictions) * targets + -tf.math.log(1e-6 + 1 - predictions) * (1 - targets))
 
 
 class TransformerModel(tf.keras.layers.Layer):
-	def __init__(self, model_config, token_vocab_dim):
-    		super(TransformerModel, self).__init__()
-		self.code_transformer = Transformer(model_config["embed_dim"], model_config["hidden_dim"], token_vocab_dim, model_config["attention_dim"], model_config["num_layers"], model_config["ff_dim"], model_config["num_heads"], model_config["dropout_rate"])
-		self.comment_transformer = Transformer(model_config["embed_dim"], model_config["hidden_dim"], token_vocab_dim, model_config["attention_dim"], model_config["num_layers"], model_config["ff_dim"], model_config["num_heads"], model_config["dropout_rate"])
-		self.classify = tf.keras.layers.Dense(1, activation="sigmoid")
 
-	def call(self, comment_indices, comment_masks, code_indices, code_masks):
-		# Set up masks for our two transformers
-		comment_self_masks = tf.reshape(comment_masks, [comment_masks.shape[0], 1, 1, comment_masks.shape[1]])
-		code_self_masks = tf.reshape(code_masks, [code_masks.shape[0], 1, 1, code_masks.shape[1]])
-		code_key_masks = code_self_masks * tf.reshape(comment_masks, [comment_masks.shape[0], 1, comment_masks.shape[1], 1])
+    def __init__(self, model_config, token_vocab_dim):
+        super(TransformerModel, self).__init__()
+        self.code_transformer = Transformer(model_config["embed_dim"], model_config["hidden_dim"], token_vocab_dim, model_config[
+                                            "attention_dim"], model_config["num_layers"], model_config["ff_dim"], model_config["num_heads"], model_config["dropout_rate"])
+        self.comment_transformer = Transformer(model_config["embed_dim"], model_config["hidden_dim"], token_vocab_dim, model_config[
+                                               "attention_dim"], model_config["num_layers"], model_config["ff_dim"], model_config["num_heads"], model_config["dropout_rate"])
+        self.classify = tf.keras.layers.Dense(1, activation="sigmoid")
 
-		# Compute code self-attention states
-		code_states = self.code_transformer(code_indices, masks=code_self_masks)
+    def call(self, comment_indices, comment_masks, code_indices, code_masks):
+        # Set up masks for our two transformers
+        comment_self_masks = tf.reshape(
+            comment_masks, [comment_masks.shape[0], 1, 1, comment_masks.shape[1]])
+        code_self_masks = tf.reshape(code_masks, [code_masks.shape[0], 1, 1, code_masks.shape[1]])
+        code_key_masks = code_self_masks * \
+            tf.reshape(comment_masks, [comment_masks.shape[0], 1, comment_masks.shape[1], 1])
 
-		# Compute comment self+code-attention states
-		states = self.comment_transformer(comment_indices, masks=comment_self_masks, key_states=code_states, key_masks=code_key_masks)
+        # Compute code self-attention states
+        code_states = self.code_transformer(code_indices, masks=code_self_masks)
 
-		# Max-pool states and project to classify
-		states = tf.reduce_max(states, 1)
-		preds = self.classify(states)
-		preds = tf.squeeze(preds, -1)
-		return preds
+        # Compute comment self+code-attention states
+        states = self.comment_transformer(
+            comment_indices, masks=comment_self_masks, key_states=code_states, key_masks=code_key_masks)
+
+        # Max-pool states and project to classify
+        states = tf.reduce_max(states, 1)
+        preds = self.classify(states)
+        preds = tf.squeeze(preds, -1)
+        return preds
+
 
 class BaselineModel(tf.keras.layers.Layer):
 
@@ -159,7 +183,9 @@ class BaselineModel(tf.keras.layers.Layer):
                                   self.rnns_fwd_comment, self.rnns_bwd_comment)
         code_states = run_base(code_indices, code_masks, self.rnns_fwd_code, self.rnns_bwd_code)
         states = tf.concat([tf.reduce_max(code_states, 1), tf.reduce_max(comment_states, 1)], -1)
-        return self.classify(states)
+        preds = self.classify(states)
+        preds = tf.squeeze(preds, -1)
+        return preds
 
 if __name__ == '__main__':
     main()

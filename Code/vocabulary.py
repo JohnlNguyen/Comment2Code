@@ -3,17 +3,27 @@ import re
 import argparse
 import yaml
 import json
-import jsonlines
+# import jsonlines
+# import spacy
+# from nltk.tokenize import RegexpTokenizer
 
 from pdb import set_trace
 
+import csv
 
 def get_tokens(data_path):
-    with jsonlines.open(data_path, 'r') as f:
-        for line in f:
-            yield line["code"].replace("\n", "\\n")
-            yield line["docstring"].replace("\n", "\\n")
+    # with jsonlines.open(data_path, 'r') as f:
+    #     for line in f:
+    #         yield line["code"].replace("\n", "\\n")
+    #         yield line["docstring"].replace("\n", "\\n")
 
+    """ quora """
+    # with open(data_path, newline='') as csv_file:
+    #     reader = csv.reader(csv_file, delimiter=',')
+    #     next(reader)
+    #     for line in reader:
+    #         yield line[3]
+    #         yield line[4]
 
 def main():
     # Extract arguments
@@ -29,7 +39,7 @@ def main():
 class VocabularyBuilder():
 
     special_tokens = []
-
+    # EN = spacy.load('en')
     def __init__(self, vocab_config, file_contents=None, vocab_path=None, out_vocab_path='vocab'):
         self.vocab_cutoff = vocab_config["vocab_cutoff"]
         self.split_kind = vocab_config["split_tokens"].lower()
@@ -49,18 +59,37 @@ class VocabularyBuilder():
 
         self.vocab_dim = len(self.w2i)
         print("Vocabulary dimension:", self.vocab_dim)
-        self.vocab_key = lambda w: self.w2i[
-            w] if w in self.w2i else self.w2i["<unk>"]  # Convenience function
+        # self.vocab_key = lambda w: self.w2i[
+        #     w] if w in self.w2i else self.w2i["<unk>"]  # Convenience function
 
         if self.split_kind == "bpe":
             self.bpe_lookup_dict = {}
             for token in self.w2i.keys():
+                if not token:
+                    continue
                 if token[0] not in self.bpe_lookup_dict:
                     self.bpe_lookup_dict[token[0]] = set([token])
                 else:
                     self.bpe_lookup_dict[token[0]].add(token)
 
-    def tokenize(self, line):
+        self.num_oov = 0
+
+    def vocab_key(self, w):
+        if w in self.w2i:
+            return self.w2i[w]
+        else:
+            print("Num oov ", self.num_oov)
+            self.num_oov += 1
+            return self.w2i["<unk>"]
+
+    # def tokenize_comment(self, line):
+    #     tokens = VocabularyBuilder.EN.tokenizer(line)
+    #     return [token.text.lower() for token in tokens if not token.is_space]
+
+    def tokenize_code(self, line):
+        # if self.split_kind == "nltk":
+        #     return RegexpTokenizer(r'\w+').tokenize(line)
+
         tokens = [line] if self.split_file else re.split('\s+', line)
         if self.split_kind == "bpe":
             subtokens = []
@@ -79,9 +108,8 @@ class VocabularyBuilder():
                     candidates = self.bpe_lookup_dict[c]
                     # Only sub-tokens that match the next characters and don't leave the
                     # end-of-word marker left by itself
-                    candidates = [t for t in candidates if t == token[
-                        ix:ix + len(t)] and (self.split_file or len(token) != ix + len(t) + 1)]
-                    top_candidate = max([(t, len(t)) for t in candidates], key=lambda e: e[1])[0]
+                    candidates = [t for t in candidates if t == token[ix:ix + len(t)] and (self.split_file or len(token) != ix + len(t) + 1)]
+                    top_candidate = max([(t, len(t)) for t in candidates], key=lambda e: e[1])[0] if candidates else []
                     subtokens.append(top_candidate)
                     ix += len(top_candidate)
             return subtokens
@@ -136,7 +164,7 @@ class VocabularyBuilder():
             self.save_vocab(self.out_vocab_path)
 
     def save_vocab(self, path):
-        with open("vocab", "w", encoding="utf8") as f:
+        with open(path, "w", encoding="utf8") as f:
             for ix in range(len(self.w2i)):
                 w = self.i2w[ix]
                 f.write(str(self.token_counts[w]))
@@ -148,10 +176,10 @@ class VocabularyBuilder():
     def load_vocab(self, vocab_path):
         with open(vocab_path, "r", encoding="utf8") as f:
             vocab = [l.rstrip('\n').split("\t", 1) for l in f.readlines()]
-            vocab = [l[1] for l in vocab if int(l[0]) >= (
-                0 if self.split_kind == "bpe" else self.vocab_cutoff)]
-        self.w2i = {w: i for i, w in enumerate(vocab)}
-        self.i2w = {i: w for w, i in self.w2i.items()}
+            vocab = [l[1] for l in vocab if l[0].isdigit() and int(l[0]) >= (0 if self.split_kind == "bpe" else self.vocab_cutoff)]
+
+        self.w2i = {w:i for i, w in enumerate(vocab)}
+        self.i2w = {i:w for w, i in self.w2i.items()}
         if not "<unk>" in self.w2i:
             self.w2i["<unk>"] = len(self.w2i)
             self.i2w[self.w2i["<unk>"]] = "<unk>"

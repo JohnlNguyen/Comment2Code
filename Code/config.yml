@@ -22,7 +22,7 @@ vocabulary:
   split_file: true
   bpe_limit: 5000
 training:
-  num_epochs: 100
-  print_freq: 10
-  model: "rnn"
-  lr: 0.001
+  num_epochs: 10
+  print_freq: 5
+  model: "transformer"
+  lr: 0.0001
