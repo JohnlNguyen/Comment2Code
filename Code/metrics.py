@@ -43,12 +43,10 @@ if __name__ == '__main__':
 	from sklearn.metrics import auc
 
 	y_preds, y_true = [], []
-	with open('../data/valid_ep1.pkl', 'rb') as f:
+	with open('../data/valid_shared_transformer.pkl', 'rb') as f:
 		data = pickle.load(f)
 		y_preds, y_true = data
-
-	y_true = y_true[0]
-
+	print(accuracy_score(y_true, y_preds))
 	""" if aligned and say is aligned
 		precision tp / (tp + fp)
 		recall tp / (tp + fn)
@@ -85,7 +83,7 @@ if __name__ == '__main__':
 	plt.plot(recalls, precisions, marker='.')
 	plt.xlabel('Recall', fontsize='small')
 	plt.ylabel('Precision', fontsize='small')
-	plt.title('RN Aligned and Is Aligned at Epoch 1', fontdict={'fontsize': 7})
+	plt.title('Aligned and Is Aligned', fontdict={'fontsize': 7})
 
 	tprs = [x[0] for x in roc]
 	fprs = [x[1] for x in roc]
@@ -93,7 +91,7 @@ if __name__ == '__main__':
 	plt.plot(fprs, tprs, marker='.')
 	plt.xlabel('False Positive Rate ' + 'AUC {:.3f}'.format(auc(fprs, tprs)), fontsize='small')
 	plt.ylabel('True Positive Rate', fontsize='small')
-	plt.title('RN Aligned and Is Aligned at Epoch 1', fontdict={'fontsize': 7})
+	plt.title('Aligned and Is Aligned', fontdict={'fontsize': 7})
 
 	""" if not aligned and say is not aligned
 		precision tp / (tp + fp)
@@ -129,7 +127,7 @@ if __name__ == '__main__':
 	plt.plot(recalls, precisions, marker='.')
 	plt.xlabel('Recall', fontsize='small')
 	plt.ylabel('Precision', fontsize='small')
-	plt.title('RN Not Aligned and Is Not Aligned at Epoch 1', fontdict={'fontsize': 7})
+	plt.title('Not Aligned and Is Not Aligned', fontdict={'fontsize': 7})
 
 	tprs = [x[0] for x in roc]
 	fprs = [x[1] for x in roc]
@@ -139,6 +137,6 @@ if __name__ == '__main__':
 
 	plt.ylabel('True Positive Rate', fontsize='small')
 
-	plt.title('RN Not Aligned and Is Not Aligned at Epoch 1', fontdict={'fontsize': 7})
+	plt.title('Not Aligned and Is Not Aligned', fontdict={'fontsize': 7})
 	plt.tight_layout()
 	plt.show()

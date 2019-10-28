@@ -41,3 +41,4 @@ training:
   loss_function: "log_loss"
   input_type: "both"
   save_valid: true
+  logfile: "../data/shared_transformer.log"

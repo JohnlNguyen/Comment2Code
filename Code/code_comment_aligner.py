@@ -33,7 +33,7 @@ def main():
 	ap.add_argument("-v", "--vocabulary", required=False, help="Path to vocabulary files")
 	args = ap.parse_args()
 	print("Using configuration: ")
-	pp.pprint(config)
+	log_and_print(pprint.pformat(config))
 	data = DataReader(config["data"], config["vocabulary"], args.data, vocab_file=args.vocabulary)
 	if config["training"]["model"] == "transformer":
 		model = TransformerModel(config["transformer"], data.vocabulary.vocab_dim)
@@ -58,7 +58,7 @@ def train(model, data):
 	total_batches = 0
 	is_first = True
 	for epoch in range(config["training"]["num_epochs"]):
-		print("Epoch:", epoch + 1)
+		log_and_print("Epoch: {}".format(epoch + 1))
 		metrics = MetricsTracker()
 		mbs = 0
 		for batch in data.batcher(mode="training", input_type=config["training"]["input_type"]):
@@ -69,7 +69,7 @@ def train(model, data):
 			if is_first:
 				model(*batch[:-1])
 				is_first = False
-				print("Model initialized, training {:,} parameters".format(
+				log_and_print("Model initialized, training {:,} parameters".format(
 					np.sum([np.prod(v.shape) for v in model.trainable_variables])))
 
 			# Compute loss in scope of gradient-tape (can also use implicit gradients)
@@ -86,14 +86,14 @@ def train(model, data):
 			metrics.add_observation(batch[-1], preds, loss)
 			if mbs % config["training"]["print_freq"] == 0:
 				lr = optimizer.get_config()['learning_rate'].numpy()
-				print("MB: {0}, lr: {1:.1e}: samples: {2:,}, entropy: {3}, acc: {4} loss: {5:.4f}".format(
+				log_and_print("MB: {0}, lr: {1:.1e}: samples: {2:,}, entropy: {3}, acc: {4} loss: {5:.4f}".format(
 					mbs, lr, *metrics.get_stats(), loss))
 				metrics.flush()
 
 		# Run a validation pass at the end of every epoch
-		print("Validation: samples: {0}, entropy: {1}, accs: {2}".format(
+		log_and_print("Validation: samples: {0}, entropy: {1}, accs: {2}".format(
 			*eval(model, data)))
-	print(
+	log_and_print(
 		"Test: samples: {0}, entropy: {1}, accs: {2}".format(*eval(model, data, validate=False)))
 
 
@@ -266,7 +266,7 @@ class SharedTransformerModel(TransformerModel):
 		a_states = self.comment_transformer(
 			a_comment_indices, masks=a_comment_self_masks, key_states=code_states, key_masks=a_code_key_masks)
 
-		states = tf.concat([b_states, a_states], axis=-1)
+		states = tf.concat([b_states, a_states], axis=1)
 		states = tf.reduce_max(states, axis=1)
 
 		# prediction
@@ -315,6 +315,12 @@ class BaselineModel(tf.keras.layers.Layer):
 		preds = self.classify(states)
 		preds = tf.squeeze(preds, -1)
 		return preds
+
+
+def log_and_print(msg):
+	print(msg)
+	with open(config["training"]["logfile"], 'a+') as f:
+		f.write(msg + '\n')
 
 
 if __name__ == '__main__':

@@ -3,7 +3,7 @@ import pickle
 import pandas as pd
 
 y_preds, y_true = [], []
-with open('./valid_before_after_ep1.pkl', 'rb') as f:
+with open('./valid_shared_transformer.pkl', 'rb') as f:
     data = pickle.load(f)
     y_preds, y_true = data
 

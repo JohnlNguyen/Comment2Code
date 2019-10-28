@@ -228,7 +228,7 @@ class DataReader(object):
 		code = line['before_code'] if label == 0 else line['after_code']
 
 		b_comment_tokens = self.vocabulary.tokenize(b_comment.replace("\n", "\\n"))
-		a_comment_tokens = self.vocabulary.tokenize(b_comment.replace("\n", "\\n"))
+		a_comment_tokens = self.vocabulary.tokenize(a_comment.replace("\n", "\\n"))
 		code_tokens = self.vocabulary.tokenize("\\n".join(code).replace("\n", "\\n"))
 
 		return DataReader.BothBatch(b_comment_tokens, a_comment_tokens, code_tokens, label)
