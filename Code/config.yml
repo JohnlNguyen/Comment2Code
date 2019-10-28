@@ -26,15 +26,18 @@ baseline:
 data:
   max_batch_size: 5000
   max_sample_size: 250
-  percent: .5
+  percent: .50
 vocabulary:
   vocab_cutoff: 10
   split_tokens: "bpe"
   split_file: true
   bpe_limit: 5000
 training:
-  num_epochs: 10
+  num_epochs: 20
   print_freq: 5
-  model: "multimodal"
+  model: "shared_transformer"
   lr: 0.0001
+  beta: .5
+  loss_function: "log_loss"
   input_type: "both"
+  save_valid: true

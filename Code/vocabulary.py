@@ -41,7 +41,6 @@ def main():
 class VocabularyBuilder():
 	special_tokens = []
 
-	# EN = spacy.load('en')
 	def __init__(self, vocab_config, file_contents=None, vocab_path=None, out_vocab_path='vocab'):
 		self.vocab_cutoff = vocab_config["vocab_cutoff"]
 		self.split_kind = vocab_config["split_tokens"].lower()

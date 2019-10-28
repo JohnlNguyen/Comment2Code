@@ -20,6 +20,7 @@ import util
 random.seed(41)
 config = yaml.safe_load(open("config.yml"))
 pp = pprint.PrettyPrinter(indent=2)
+best_eval_acc = np.NINF
 
 
 # os.environ["CUDA_VISIBLE_DEVICES"] = "1"
@@ -40,6 +41,8 @@ def main():
 		model = BaselineModel(config["baseline"], data.vocabulary.vocab_dim)
 	elif config["training"]["model"] == "multimodal":
 		model = MultiModalTransformerModel(config["multimodal"], data.vocabulary.vocab_dim)
+	elif config["training"]["model"] == "shared_transformer":
+		model = SharedTransformerModel(config["transformer"], data.vocabulary.vocab_dim)
 	train(model, data)
 
 
@@ -54,12 +57,11 @@ def train(model, data):
 
 	total_batches = 0
 	is_first = True
-	input_type = config["training"]["input_type"]
 	for epoch in range(config["training"]["num_epochs"]):
 		print("Epoch:", epoch + 1)
 		metrics = MetricsTracker()
 		mbs = 0
-		for batch in data.batcher(mode="training", input_type=input_type):
+		for batch in data.batcher(mode="training", input_type=config["training"]["input_type"]):
 			mbs += 1
 			total_batches += 1
 
@@ -90,32 +92,52 @@ def train(model, data):
 
 		# Run a validation pass at the end of every epoch
 		print("Validation: samples: {0}, entropy: {1}, accs: {2}".format(
-			*eval(model, data, input_type=input_type)))
+			*eval(model, data)))
 	print(
-		"Test: samples: {0}, entropy: {1}, accs: {2}".format(*eval(model, data, validate=False, input_type=input_type)))
+		"Test: samples: {0}, entropy: {1}, accs: {2}".format(*eval(model, data, validate=False)))
 
 
-def eval(model, data, input_type, validate=True, save=False):
+def eval(model, data, validate=True):
 	mbs = 0
 	metrics = MetricsTracker()
 	valid_preds, valid_target = np.array([]), np.array([])
-	for batch in data.batcher(mode="valid" if validate else "test", input_type=input_type):
+	global best_eval_acc
+	for batch in data.batcher(mode="valid" if validate else "test", input_type=config["training"]["input_type"]):
 		mbs += 1
 		preds = model(*batch[:-1])
 		metrics.add_observation(batch[-1], preds, get_loss(batch[-1], preds))
 		valid_preds = np.append(valid_preds, preds.numpy())
 		valid_target = np.append(valid_target, batch[-1].numpy())
 
-	if save:
-		with open('valid_before_after.pkl', 'wb') as f:
+	acc = metrics.get_acc()
+	if config["training"]["save_valid"] and best_eval_acc < acc:
+		with open("valid_{}.pkl".format(config["training"]["model"]), 'wb') as f:
 			pickle.dump([list(valid_preds), list(valid_target)], f)
+		best_eval_acc = acc
 	return metrics.get_stats()
 
 
-def get_loss(targets, predictions):
-	"""log loss"""
+def log_loss(targets, predictions):
 	return tf.reduce_mean(
 		-tf.math.log(1e-6 + predictions) * targets + -tf.math.log(1e-6 + 1 - predictions) * (1 - targets))
+
+
+def get_cp_loss(targets, predictions):
+	"""
+	Confidence Penalty Loss
+	https://arxiv.org/pdf/1701.06548.pdf
+	"""
+	log_loss = tf.losses.binary_crossentropy(targets, predictions)
+	entropy = -tf.reduce_mean(predictions * tf.math.log(1e-6 + predictions))
+	cp = float(config["training"]["beta"]) * entropy
+	return log_loss + cp
+
+
+def get_loss(targets, predictions):
+	if config["training"]["loss_function"] == "cp":
+		return get_cp_loss(targets, predictions)
+	else:
+		return log_loss(targets, predictions)
 
 
 class MultiModalTransformerModel(tf.keras.layers.Layer):
@@ -130,7 +152,7 @@ class MultiModalTransformerModel(tf.keras.layers.Layer):
 		self.a_comment_transformer = self.build_transformer()
 
 		# Projection layers
-		self.fc = tf.keras.layers.Dense(model_config["hidden_dim"], activation='relu')
+		self.fc1 = tf.keras.layers.Dense(512, activation='relu')
 		self.classify = tf.keras.layers.Dense(1, activation="sigmoid")
 
 	def call(self, b_comment_indices, b_comment_masks, a_comment_indices, a_comment_masks, code_indices, code_masks):
@@ -163,7 +185,9 @@ class MultiModalTransformerModel(tf.keras.layers.Layer):
 		# concat before and after
 		states = tf.concat([b_states, a_states], axis=-1)
 
-		preds = self.classify(self.fc(states))
+		# prediction
+		states = self.fc1(states)
+		preds = self.classify(states)
 		preds = tf.squeeze(preds, -1)
 		return preds
 
@@ -207,6 +231,46 @@ class TransformerModel(tf.keras.layers.Layer):
 
 		# Max-pool states and project to classify
 		states = tf.reduce_max(states, 1)
+		preds = self.classify(states)
+		preds = tf.squeeze(preds, -1)
+		return preds
+
+
+class SharedTransformerModel(TransformerModel):
+
+	def __init__(self, model_config, token_vocab_dim):
+		super(SharedTransformerModel, self).__init__(model_config, token_vocab_dim)
+		self.fc1 = tf.keras.layers.Dense(512, activation='relu')
+
+	def call(self, b_comment_indices, b_comment_masks, a_comment_indices, a_comment_masks, code_indices, code_masks):
+		# Set up masks for our three transformers
+		code_self_masks = tf.reshape(code_masks, [code_masks.shape[0], 1, 1, code_masks.shape[1]])
+
+		b_code_key_masks = code_self_masks * tf.reshape(b_comment_masks,
+														[b_comment_masks.shape[0], 1, b_comment_masks.shape[1], 1])
+		a_code_key_masks = code_self_masks * tf.reshape(a_comment_masks,
+														[a_comment_masks.shape[0], 1, a_comment_masks.shape[1], 1])
+
+		b_comment_self_masks = tf.reshape(
+			b_comment_masks, [b_comment_masks.shape[0], 1, 1, b_comment_masks.shape[1]])
+		a_comment_self_masks = tf.reshape(
+			a_comment_masks, [a_comment_masks.shape[0], 1, 1, a_comment_masks.shape[1]])
+
+		# Compute code self-attention states
+		code_states = self.code_transformer(code_indices, masks=code_self_masks)
+
+		# Compute before comment self+code-attention states
+		b_states = self.comment_transformer(
+			b_comment_indices, masks=b_comment_self_masks, key_states=code_states, key_masks=b_code_key_masks)
+
+		a_states = self.comment_transformer(
+			a_comment_indices, masks=a_comment_self_masks, key_states=code_states, key_masks=a_code_key_masks)
+
+		states = tf.concat([b_states, a_states], axis=-1)
+		states = tf.reduce_max(states, axis=1)
+
+		# prediction
+		states = self.fc1(states)
 		preds = self.classify(states)
 		preds = tf.squeeze(preds, -1)
 		return preds

@@ -32,6 +32,9 @@ class MetricsTracker():
 		acc = self.acc / self.acc_count if self.acc_count > 0 else 0
 		return self.total_samples, "{0:.3f}".format(loss), "{0:.2%}".format(acc)
 
+	def get_acc(self):
+		return self.acc / self.acc_count if self.acc_count > 0 else 0
+
 
 if __name__ == '__main__':
 	import pickle

@@ -119,6 +119,8 @@ test/Diffs/
 test/Repos/
 data/*.pkl
 data/*.json
+data/*.csv
 Pairs/
 .vscode/
 data/python
+.keras
