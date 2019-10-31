@@ -22,6 +22,12 @@ def build_lexer(language="python"):
 
 
 def strip_special_chars(value):
+	"""
+	Strip special chars from string
+	:param value: Expect a list
+	:return: a cleaned value as a string
+	"""
+	value = "\n".join([w.replace("#", "").strip() for w in value])
 	return value.replace("\t", "\\t").replace("\n", "\\n").replace("\r", "\\r").strip()
 
 

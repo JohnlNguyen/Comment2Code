@@ -1,10 +1,4 @@
 
-train:
-	@cd Code && python3 code_comment_aligner.py ../data/Pairs/code_comment_90742.json -v vocab
-
-train-dcs:
-	@cd Code && python3 code_comment_aligner.py ../data/python/final/jsonl/train/python_train_9.jsonl -v dcs_vocab
-
 clean:
 	@cd src && python3 clean.py
 
@@ -21,13 +15,7 @@ extract:
 	@cd src && python3 code_crawler.py
 
 inspect:
-	@cd src && python3 inspect_data.py
-
-inspect-100k:
-	@cd src && python3 inspect_data.py -f='comment_code_100k.pkl'
-
-merge:
-	@cd src && python3 merge.py
+	@cd src && python3 inspect_data.py -f='inspect_before_after.json'
 
 inspect-rand:
 	@cd src && python3 inspect_data.py --rand=True
