@@ -3,21 +3,14 @@ import re
 import argparse
 import yaml
 import json
-# import jsonlines
-# import spacy
-# from nltk.tokenize import RegexpTokenizer
-
+import itertools
+from bpe import Encoder
 from pdb import set_trace
 
 import csv
 
 
 def get_tokens(data_path):
-	# with jsonlines.open(data_path, 'r') as f:
-	#     for line in f:
-	#         yield line["code"].replace("\n", "\\n")
-	#         yield line["docstring"].replace("\n", "\\n")
-
 	""" quora """
 	# with open(data_path, newline='') as csv_file:
 	#     reader = csv.reader(csv_file, delimiter=',')
@@ -25,6 +18,10 @@ def get_tokens(data_path):
 	#     for line in reader:
 	#         yield line[3]
 	#         yield line[4]
+	"""normal"""
+	with open(data_path, 'r') as f:
+		data = json.load(f)
+		yield from util.get_data(data)
 
 
 def main():
@@ -34,11 +31,12 @@ def main():
 	ap.add_argument("-v", "--vocabulary", required=False, help="Path to output vocab file")
 	args = ap.parse_args()
 	config = yaml.safe_load(open("config.yml"))
+
 	vocab = VocabularyBuilder(config["vocabulary"], file_contents=list(
 		get_tokens(args.data)), out_vocab_path=args.vocabulary)
 
 
-class VocabularyBuilder():
+class VocabularyBuilder(object):
 	special_tokens = []
 
 	def __init__(self, vocab_config, file_contents=None, vocab_path=None, out_vocab_path='vocab'):
@@ -60,8 +58,6 @@ class VocabularyBuilder():
 
 		self.vocab_dim = len(self.w2i)
 		print("Vocabulary dimension:", self.vocab_dim)
-		# self.vocab_key = lambda w: self.w2i[
-		#     w] if w in self.w2i else self.w2i["<unk>"]  # Convenience function
 
 		if self.split_kind == "bpe":
 			self.bpe_lookup_dict = {}
@@ -104,7 +100,8 @@ class VocabularyBuilder():
 					# end-of-word marker left by itself
 					candidates = [t for t in candidates if
 								  t == token[ix:ix + len(t)] and (self.split_file or len(token) != ix + len(t) + 1)]
-					top_candidate = max([(t, len(t)) for t in candidates], key=lambda e: e[1])[0] if candidates else []
+					top_candidate = max([(t, len(t)) for t in candidates],
+										key=lambda e: e[1])[0] if candidates else []
 					subtokens.append(top_candidate)
 					ix += len(top_candidate)
 			return subtokens
@@ -242,6 +239,8 @@ class VocabularyBuilder():
 		count_table = {}
 		loc_table = {}
 		for tix, token in enumerate(strings):
+			if not token:
+				continue
 			for ix, c in enumerate(token):
 				if c == '\n':
 					c = '\\n'
@@ -319,6 +318,34 @@ class VocabularyBuilder():
 					del count_table[new_token]
 					del loc_table[new_token]
 		return bpe_pairs
+
+
+class BPE(object):
+	def __init__(self, vocab_config, file_contents=None, vocab_path=None, out_vocab_path='vocab'):
+		if vocab_path:
+			self.encoder = self.load_vocab(vocab_path)
+		else:
+			self.encoder = Encoder(vocab_size=32000, pct_bpe=1.0, silent=False)
+
+	def load_vocab(self, vocab_path):
+		return Encoder.load(vocab_path)
+
+	def save_vocab(self, path):
+		self.encoder.save(path)
+
+	def tokenize(self, line):
+		return self.encoder.tokenize(line)
+
+	def vocab_key(self, w):
+		UNK = self.encoder.word_vocab[self.encoder.UNK]
+		return self.encoder.bpe_vocab.get(w, UNK)
+
+	def transform(self, line):
+		return list(itertools.chain.from_iterable(self.encoder.transform(line, reverse=False, fixed_length=None)))
+
+	@property
+	def vocab_dim(self):
+		return len(self.encoder.bpe_vocab)
 
 
 if __name__ == '__main__':
