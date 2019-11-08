@@ -12,7 +12,7 @@ import numpy as np
 import tensorflow as tf
 
 from pdb import set_trace
-from transformer import Transformer
+from transformer import Transformer, AttentionLayer
 from metrics import MetricsTracker
 from data_reader import DataReader
 import util
@@ -34,6 +34,7 @@ def main():
 	args = ap.parse_args()
 	print("Using configuration: ")
 	log_and_print(pprint.pformat(config))
+
 	data = DataReader(config["data"], config["vocabulary"], args.data, vocab_file=args.vocabulary)
 	if config["training"]["model"] == "transformer":
 		model = TransformerModel(config["transformer"], data.vocabulary.vocab_dim)
@@ -43,6 +44,10 @@ def main():
 		model = MultiModalTransformerModel(config["multimodal"], data.vocabulary.vocab_dim)
 	elif config["training"]["model"] == "shared_transformer":
 		model = SharedTransformerModel(config["transformer"], data.vocabulary.vocab_dim)
+	elif config["training"]["model"] == "similarity_transformer":
+		model = SimilarityTransformerModel(config["transformer"], data.vocabulary.vocab_dim)
+	elif config["training"]["model"] == "code_transformer":
+		model = CodeTransformerModel(config["transformer"], data.vocabulary.vocab_dim)
 	train(model, data)
 
 
@@ -236,11 +241,85 @@ class TransformerModel(tf.keras.layers.Layer):
 		return preds
 
 
+class SimilarityTransformerModel(TransformerModel):
+	def __init__(self, model_config, token_vocab_dim):
+		super(SimilarityTransformerModel, self).__init__(model_config, token_vocab_dim)
+
+		self.self_attention = [
+			AttentionLayer(attention_dim=model_config["attention_dim"], num_heads=model_config["num_heads"],
+						   hidden_dim=model_config["hidden_dim"])
+			for _ in range(3)]
+
+		self.fc_1 = tf.keras.layers.Dense(512, activation='relu')
+
+	def call(self, b_comment_indices, b_comment_masks, a_comment_indices, a_comment_masks, b_code_indices, b_code_masks,
+			 a_code_indices, a_code_masks):
+		b_code_self_masks = tf.reshape(b_code_masks, [b_code_masks.shape[0], 1, 1, b_code_masks.shape[1]])
+		a_code_self_masks = tf.reshape(a_code_masks, [a_code_masks.shape[0], 1, 1, a_code_masks.shape[1]])
+
+		b_b_code_key_masks = b_code_self_masks * tf.reshape(b_comment_masks,
+															[b_comment_masks.shape[0], 1, b_comment_masks.shape[1], 1])
+		b_a_code_key_masks = a_code_self_masks * tf.reshape(b_comment_masks,
+															[b_comment_masks.shape[0], 1, b_comment_masks.shape[1], 1])
+
+		a_b_code_key_masks = b_code_self_masks * tf.reshape(a_comment_masks,
+															[a_comment_masks.shape[0], 1, a_comment_masks.shape[1], 1])
+		a_a_code_key_masks = a_code_self_masks * tf.reshape(a_comment_masks,
+															[a_comment_masks.shape[0], 1, a_comment_masks.shape[1], 1])
+
+		b_comment_self_masks = tf.reshape(
+			b_comment_masks, [b_comment_masks.shape[0], 1, 1, b_comment_masks.shape[1]])
+		a_comment_self_masks = tf.reshape(
+			a_comment_masks, [a_comment_masks.shape[0], 1, 1, a_comment_masks.shape[1]])
+
+		b_code_states = self.code_transformer(b_code_indices, masks=b_code_self_masks)  # [batch, seq len, hidden dim]
+		a_code_states = self.code_transformer(a_code_indices, masks=a_code_self_masks)  # [batch, seq len, hidden dim]
+
+		b_b_states = self.comment_transformer(
+			b_comment_indices, masks=b_comment_self_masks, key_states=b_code_states,
+			key_masks=b_b_code_key_masks)  # [batch, b code len, hidden dim]
+		b_b_states = tf.reduce_max(b_b_states, axis=1)  # [batch, hidden dim]
+
+		b_a_states = self.comment_transformer(
+			b_comment_indices, masks=b_comment_self_masks, key_states=a_code_states,
+			key_masks=b_a_code_key_masks)  # [batch, seq len, hidden dim]
+		b_a_states = tf.reduce_max(b_a_states, axis=1)  # [batch, hidden dim]
+
+		a_b_states = self.comment_transformer(
+			a_comment_indices, masks=a_comment_self_masks, key_states=b_code_states,
+			key_masks=a_b_code_key_masks)  # [batch, seq len, hidden dim]
+		a_b_states = tf.reduce_max(a_b_states, axis=1)  # [batch, hidden dim]
+
+		a_a_states = self.comment_transformer(
+			a_comment_indices, masks=a_comment_self_masks, key_states=a_code_states, key_masks=a_a_code_key_masks)
+		a_a_states = tf.reduce_max(a_a_states, axis=1)
+
+		b_b_states = tf.expand_dims(b_b_states, axis=1)
+		b_a_states = tf.expand_dims(b_a_states, axis=1)
+		a_b_states = tf.expand_dims(a_b_states, axis=1)
+		a_a_states = tf.expand_dims(a_a_states, axis=1)
+		states = tf.concat([b_b_states, b_a_states, a_b_states, a_a_states], axis=1)  # [B, 4, hidden dim]
+
+		for attention in self.self_attention:
+			states = attention(states)
+
+		states = self.fc_1(states)  # [B, 4, 512]
+		preds = self.classify(states)  # [B, 4, 1]
+		preds = tf.reshape(preds, shape=[-1]) # flatten into a B x 4 vector
+		return preds
+
+
 class SharedTransformerModel(TransformerModel):
 
 	def __init__(self, model_config, token_vocab_dim):
 		super(SharedTransformerModel, self).__init__(model_config, token_vocab_dim)
-		self.fc1 = tf.keras.layers.Dense(512, activation='relu')
+
+		self.self_attention = [
+			AttentionLayer(attention_dim=model_config["attention_dim"], num_heads=model_config["num_heads"],
+						   hidden_dim=model_config["hidden_dim"])
+			for _ in range(3)]
+
+		self.fc_1 = tf.keras.layers.Dense(512, activation='relu')
 
 	def call(self, b_comment_indices, b_comment_masks, a_comment_indices, a_comment_masks, code_indices, code_masks):
 		# Set up masks for our three transformers
@@ -262,12 +341,54 @@ class SharedTransformerModel(TransformerModel):
 		# Compute before comment self+code-attention states
 		b_states = self.comment_transformer(
 			b_comment_indices, masks=b_comment_self_masks, key_states=code_states, key_masks=b_code_key_masks)
+		b_states = tf.reduce_max(b_states, axis=1)
 
 		a_states = self.comment_transformer(
 			a_comment_indices, masks=a_comment_self_masks, key_states=code_states, key_masks=a_code_key_masks)
+		a_states = tf.reduce_max(a_states, axis=1)
 
-		states = tf.concat([b_states, a_states], axis=1)
-		states = tf.reduce_max(states, axis=1)
+		states = tf.concat([b_states, a_states], axis=-1)
+
+		# prediction
+		states = self.fc_1(states)
+		preds = self.classify(states)
+		preds = tf.squeeze(preds, -1)
+		return preds
+
+
+class CodeTransformerModel(SharedTransformerModel):
+	def __init__(self, model_config, token_vocab_dim):
+		super(CodeTransformerModel, self).__init__(model_config, token_vocab_dim)
+
+	def call(self, b_code_indices, b_code_masks, a_code_indices, a_code_masks, comment_indices, comment_masks):
+		# setting up masks
+		b_code_self_masks = tf.reshape(b_code_masks, [b_code_masks.shape[0], 1, 1, b_code_masks.shape[1]])
+		a_code_self_masks = tf.reshape(a_code_masks, [a_code_masks.shape[0], 1, 1, a_code_masks.shape[1]])
+
+		comment_self_masks = tf.reshape(
+			comment_masks, [comment_masks.shape[0], 1, 1, comment_masks.shape[1]])
+
+		a_comment_key_masks = comment_self_masks * tf.reshape(a_code_masks,
+															  [a_code_masks.shape[0], 1, a_code_masks.shape[1], 1])
+
+		b_comment_key_masks = comment_self_masks * tf.reshape(b_code_masks,
+															  [b_code_masks.shape[0], 1, b_code_masks.shape[1], 1])
+
+		# comment
+		comment_states = self.comment_transformer(comment_indices, masks=comment_self_masks)
+
+		# before code and maxpool
+		b_states = self.code_transformer(b_code_indices, masks=b_code_self_masks, key_states=comment_states,
+										 key_masks=b_comment_key_masks)
+		b_states = tf.reduce_max(b_states, axis=1)
+
+		# after code and maxpool
+		a_states = self.code_transformer(a_code_indices, masks=a_code_self_masks, key_states=comment_states,
+										 key_masks=a_comment_key_masks)
+		a_states = tf.reduce_max(a_states, axis=1)
+
+		# concat
+		states = tf.concat([b_states, a_states], axis=-1)
 
 		# prediction
 		states = self.fc1(states)
@@ -319,9 +440,9 @@ class BaselineModel(tf.keras.layers.Layer):
 
 def log_and_print(msg):
 	print(msg)
-	with open(config["training"]["logfile"], 'a+') as f:
+	logfile = os.path.join("../data", config["training"]["model"] + ".log")
+	with open(logfile, 'a+') as f:
 		f.write(msg + '\n')
-
 
 if __name__ == '__main__':
 	main()

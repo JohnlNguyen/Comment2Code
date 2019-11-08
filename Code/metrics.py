@@ -18,6 +18,7 @@ class MetricsTracker():
 		self.entropy = 0
 		self.acc = 0.0
 		self.acc_count = 0
+		self.preds = np.array([])
 
 	def add_observation(self, targets, predictions, loss):
 		# Compute overall statistics, gathering types and predictions accordingly
@@ -26,11 +27,15 @@ class MetricsTracker():
 		self.acc += (num_samples * tf.metrics.binary_accuracy(targets, predictions)).numpy()
 		self.acc_count += num_samples
 		self.total_samples += int(num_samples)
+		self.preds = np.append(self.preds, predictions.numpy())
 
 	def get_stats(self):
 		loss = self.entropy / self.acc_count if self.acc_count > 0 else 0
 		acc = self.acc / self.acc_count if self.acc_count > 0 else 0
-		return self.total_samples, "{0:.3f}".format(loss), "{0:.2%}".format(acc)
+		preds = self.preds
+		e = tf.reduce_mean(-preds * np.log2(1e-6 + preds) - ((1 - preds) * np.log2(1e-6 + (1 - preds))))
+		# print("Entropy {:.3f}".format(e.numpy()))
+		return self.total_samples, "{0:.3f}".format(e.numpy()), "{0:.2%}".format(acc)
 
 	def get_acc(self):
 		return self.acc / self.acc_count if self.acc_count > 0 else 0
@@ -40,13 +45,15 @@ if __name__ == '__main__':
 	import pickle
 	import matplotlib.pyplot as plt
 	import numpy as np
-	from sklearn.metrics import auc
+	from sklearn.metrics import auc, accuracy_score
 
 	y_preds, y_true = [], []
 	with open('../data/valid_shared_transformer.pkl', 'rb') as f:
 		data = pickle.load(f)
 		y_preds, y_true = data
-	print(accuracy_score(y_true, y_preds))
+	convert = lambda x: 1 if x > .50 else 0
+
+	print(accuracy_score(y_true, [convert(x) for x in y_preds]))
 	""" if aligned and say is aligned
 		precision tp / (tp + fp)
 		recall tp / (tp + fn)

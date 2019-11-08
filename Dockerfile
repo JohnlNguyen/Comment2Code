@@ -14,7 +14,8 @@ RUN pip --no-cache-dir install --upgrade \
 		pandas \
 		requests \
 		ray \
-		sklearn
+		sklearn \
+		bpe
 
 # Open Ports for TensorBoard, Jupyter, SSH and Jupyter
 EXPOSE 6006

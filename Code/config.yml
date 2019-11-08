@@ -24,6 +24,7 @@ baseline:
   num_layers: 2
   dropout_rate: 0.5
 data:
+  batch_size: 16
   max_batch_size: 5000
   max_sample_size: 250
   percent: .50
@@ -33,12 +34,11 @@ vocabulary:
   split_file: true
   bpe_limit: 5000
 training:
-  num_epochs: 20
+  num_epochs: 10
   print_freq: 5
-  model: "shared_transformer"
+  model: "similarity_transformer"
   lr: 0.0001
   beta: .5
   loss_function: "log_loss"
-  input_type: "both"
+  input_type: "all"
   save_valid: true
-  logfile: "../data/shared_transformer.log"
