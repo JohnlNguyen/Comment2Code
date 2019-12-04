@@ -4,42 +4,42 @@ import tensorflow as tf
 from pdb import set_trace
 
 log_2_e = 1.44269504089  # Constant to convert to binary entropies
+epsilon = 1e-12
 
 
-class MetricsTracker():
+class MetricsTracker(object):
 
-	def __init__(self, top_10=False):
+	def __init__(self):
 		self.total_samples = 0
+		self.b_ce = tf.keras.metrics.BinaryCrossentropy()
+		self.b_acc = tf.keras.metrics.BinaryAccuracy()
+		self.preds = np.array([])
 		self.flush()
 
 	def flush(self, flush_totals=False):
 		if flush_totals:
 			self.total_samples = 0
-		self.entropy = 0
-		self.acc = 0.0
-		self.acc_count = 0
 		self.preds = np.array([])
+		self.b_acc.reset_states()
+		self.b_ce.reset_states()
 
 	def add_observation(self, targets, predictions, loss):
 		# Compute overall statistics, gathering types and predictions accordingly
 		num_samples = targets.shape[0]
-		self.entropy += log_2_e * loss.numpy() * num_samples
-		self.acc += (num_samples * tf.metrics.binary_accuracy(targets, predictions)).numpy()
-		self.acc_count += num_samples
 		self.total_samples += int(num_samples)
+		self.b_acc.update_state(targets, predictions)
+		self.b_ce.update_state(targets, predictions)
 		self.preds = np.append(self.preds, predictions.numpy())
 
 	def get_stats(self):
-		loss = self.entropy / self.acc_count if self.acc_count > 0 else 0
-		acc = self.acc / self.acc_count if self.acc_count > 0 else 0
-		preds = self.preds
-		e = tf.reduce_mean(-preds * np.log2(1e-6 + preds) - ((1 - preds) * np.log2(1e-6 + (1 - preds))))
-		# print("Entropy {:.3f}".format(e.numpy()))
-		return self.total_samples, "{0:.3f}".format(e.numpy()), "{0:.2%}".format(acc)
+		return self.total_samples, "{0:.3f}".format(self.b_ce.result() * log_2_e), "{0:.2%}".format(
+			self.b_acc.result())
 
 	def get_acc(self):
-		return self.acc / self.acc_count if self.acc_count > 0 else 0
+		return self.b_acc.result()
 
+	def get_bce(self):
+		return self.b_ce.result() * log_2_e
 
 if __name__ == '__main__':
 	import pickle

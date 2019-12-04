@@ -144,12 +144,12 @@ class Transformer(tf.keras.layers.Layer):
 			states = states + new_states
 
 			if key_states is not None:
-				new_states = self.key_attention[ix](self.ln[ix][1](
-					states), key_states=key_states, masks=key_masks)
+				new_states = self.key_attention[ix](self.ln[ix][1](states), key_states=key_states, masks=key_masks)
 				if training:
 					new_states = tf.nn.dropout(new_states, rate=self.dropout_rate)
 				states = states + new_states
 			new_states = self.ff_1[ix](self.ln[ix][2](states))
+
 			if training:
 				new_states = tf.nn.dropout(new_states, rate=self.dropout_rate)
 			new_states = self.ff_2[ix](new_states)
