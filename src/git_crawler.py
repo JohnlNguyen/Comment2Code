@@ -12,11 +12,13 @@ import pygments
 import whatthepatch
 from lexer import build_lexer
 from more_itertools import consecutive_groups
-from utils import is_a_code_line, contains_a_comment
+from utils import is_a_code_line, contains_a_comment, is_a_comment_line_java, is_a_comment_line_python
+from pdb import set_trace
 
 Metadata = namedtuple('Metadata', ['org', 'project', 'commit'])
 ADDED_MODE = "ADDED"
 REMOVED_MODE = "REMOVED"
+dups = set()
 
 
 class GitChange(object):
@@ -55,6 +57,7 @@ class CrawlMode(object):
         :param diff: Changes in one file
         :return:
         """
+        # if not diff.header.new_path.endswith(".java") or not diff.header.old_path.endswith(".java"):
         if not diff.header.new_path.endswith(".py") or not diff.header.old_path.endswith(".py"):
             return False
 
@@ -63,17 +66,11 @@ class CrawlMode(object):
 
         lines = [change.line.strip() for change in diff.changes]
         if self.mode == CrawlMode.COMMENT_IN_DIFF:
+            # if not any([line.startswith("//") for line in lines]):
             if not any([line.startswith("#") for line in lines]):
                 return False
-        elif self.mode == CrawlMode.STARTS_WITH_COMMENT:
-            for line in lines:
-                if line and not line.startswith("#"):
-                    return False
 
         return True
-
-
-mode = CrawlMode(CrawlMode.STARTS_WITH_COMMENT)
 
 
 def get_git_revision_hash(path):
@@ -90,9 +87,9 @@ def get_entire_history(path, curr_branch):
 # Compute diff of commit ID, relative to previous commit if one exists
 def get_diff(path, commit_id, out_file, relative_to_parent=True):
     if relative_to_parent:
-        return subprocess.call(['git', '-C', path, 'diff', commit_id + '^1', commit_id, '-U0'], stdout=out_file)
+        return subprocess.call(['git', '-C', path, 'diff', commit_id + '^1', commit_id, '-U10'], stdout=out_file)
     else:
-        return subprocess.call(['git', '-C', path, 'diff', commit_id, '-U0'], stdout=out_file)
+        return subprocess.call(['git', '-C', path, 'diff', commit_id, '-U10'], stdout=out_file)
 
 
 def get_precommit_file(path, commit_id, file, out_file):
@@ -113,20 +110,30 @@ def tag_change(all_changes, lexer, meta, is_added=True):
         for change in group:
             ttypes = [t for t, _ in pygments.lex(change.line, lexer)]
             commit_id = meta.new_version if is_added else meta.old_version
-            if not change_to_keep and contains_a_comment(ttypes):
+            # skipping over same line comments
+            # if not change_to_keep and is_a_comment_line_java(ttypes):
+            if not change_to_keep and is_a_comment_line_python(ttypes):
                 change_to_keep = GitChange(old=change.old, new=change.new, commit_id=commit_id, line=change.line,
                                            ctype=GitChange.COMMENT)
 
             if change_to_keep and is_a_code_line(ttypes):
                 change_to_keep.type = GitChange.BOTH
+            # if change_to_keep and change.old == change.new and is_a_comment_line_java(ttypes):
+            if change_to_keep and change.old == change.new and is_a_comment_line_python(ttypes):
+                change_to_keep.type = GitChange.CODE
 
         if change_to_keep:
             changes.append(change_to_keep)
     return changes
 
 
+mode = CrawlMode(CrawlMode.COMMENT_IN_DIFF)
+
+
 def parse_diff(diffs, meta, csv_out_file):
+    # lexer = build_lexer('java')
     lexer = build_lexer('python')
+
     total = 0
     for diff in diffs:
         if not mode.is_valid_diff(diff):
@@ -138,6 +145,16 @@ def parse_diff(diffs, meta, csv_out_file):
         changes = [list(hunk) for _, hunk in changes]
 
         for hunk in changes:
+            # skipping over same line comments
+            # comment_lines = [
+            #     h for h in hunk if h.line.strip().startswith("//")]
+            comment_lines = [h for h in hunk if h.line.strip().startswith("#")]
+
+            if not comment_lines:
+                continue
+            unchanged_comment_lines = [
+                h for h in comment_lines if h.new == h.old]
+
             # separate remove from added
             added_changes = [
                 x for x in hunk if not bool(x.old) and bool(x.new)]
@@ -149,8 +166,15 @@ def parse_diff(diffs, meta, csv_out_file):
             removed_changes = tag_change(
                 removed_changes, lexer, diff.header, is_added=False)
 
-            groups = group_changes(removed_changes, added_changes)
+            # work around to get before and after commit
+            unchanged_before = tag_change(
+                unchanged_comment_lines, lexer, diff.header, is_added=False)
+            unchanged_after = tag_change(
+                unchanged_comment_lines, lexer, diff.header, is_added=True)
+            unchanged = group_changes(unchanged_before, unchanged_after)
 
+            groups = group_changes(removed_changes, added_changes)
+            groups.extend(unchanged)
             if not groups:
                 continue
 
@@ -168,13 +192,12 @@ def write_to_csv(changes, csv_file_name, old_path, new_path, meta):
     dups = set()
     with open(csv_file_name, 'a', newline='') as csv_file:
         writer = csv.writer(csv_file, delimiter=',')
-
         for before, after in changes:
-
             # remove duplicates
             change_id = "{}#{}#{}#{}".format(
                 before.commit_id, after.commit_id, old_path, new_path)
-            if change_id in dups:
+            # skipping all comment only changes
+            if change_id in dups or after.type == GitChange.COMMENT:
                 continue
             dups.add(change_id)
 
@@ -221,7 +244,7 @@ def maybe_write_diff(in_dir, org, project):
 
 def write_diffs(in_dir):
     orgs_list = os.listdir(in_dir)
-
+    # orgs_list = ["elastic", "spring-projects", "ReactiveX", "square", "apache"]
     result_ids = []
     # Empty the output file safe for the header; we will append to it for every project
     for org in orgs_list:

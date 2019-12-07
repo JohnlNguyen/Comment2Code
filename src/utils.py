@@ -28,15 +28,11 @@ def is_a_comment_line_python(ttypes):
 
 
 def is_a_comment_line_java(ttypes):
-    return not is_a_code_line(ttypes) and any([t in Comment for t in ttypes])
+    return not is_a_code_line(ttypes) and any([t in Comment.Single for t in ttypes])
 
 
 def contains_a_comment(ttypes):
     return any([t in Comment for t in ttypes])
-
-
-def is_a_code_line(ttypes):
-    return Operator in ttypes or Keyword in ttypes
 
 
 def filter_comments(comments):

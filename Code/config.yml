@@ -15,8 +15,8 @@ baseline:
   dropout_rate: 0.5
 data:
   batch_size: 32
-  max_batch_size: 5000
-  max_sample_size: 250
+  max_batch_size: 3000
+  max_sample_size: 100
   percent: 1.0
 vocabulary:
   vocab_cutoff: 10
@@ -27,10 +27,11 @@ vocabulary:
 training:
   num_epochs: 10
   print_freq: 5
-  model: "similarity_transformer"
+  model: "code_transformer"
   lr: 0.0001
   beta: .5
   loss_function: "log_loss"
-  log_dir: "../data/logs/python"
-  input_type: "all"
+  log_dir: "../data/logs/java"
+  input_type: "code"
+  checkpoint: "./checkpoints/code"
   save_valid:

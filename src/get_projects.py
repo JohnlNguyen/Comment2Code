@@ -1,6 +1,6 @@
 import requests
 
-base_url = 'http://api.github.com/search/repositories?q=language:python&sort=stars&per_page=100&page='
+base_url = 'http://api.github.com/search/repositories?q=language:java&sort=stars&per_page=100&page='
 unique_projects = {}
 for page in range(1, 11):
     url = base_url + str(page)
@@ -12,7 +12,7 @@ for page in range(1, 11):
             continue
         unique_projects[d["full_name"]] = int(d["stargazers_count"])
 
-with open("../Data/projects.txt", "w") as f:
+with open("../data/projects.txt", "w") as f:
     projects = sorted(unique_projects.items(),
                       key=lambda e: e[1], reverse=True)
     for name, stars in projects:
