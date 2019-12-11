@@ -226,6 +226,8 @@ def maybe_write_diff(in_dir, org, project):
 
         # all commit ids from newest to oldest
         all_commit_ids = get_entire_history(dir_path, curr_branch)
+        if len(all_commit_ids) < 500:
+            return
 
         # iterate from newest to oldest version
         for ix, commit_id in enumerate(all_commit_ids):
@@ -275,6 +277,10 @@ def maybe_parse_diff(commit_id, org, out_file, project):
         print("Exception parsing diff", org, project, commit_id,
               "--", traceback.print_exc(file=sys.stdout))
     return total
+
+
+def get_num_contributors(path, out_file):
+    return subprocess.call(['git', 'shortlog', '-sne'], cwd=path, stdout=out_file)
 
 
 def parse(in_dir, out_dir):

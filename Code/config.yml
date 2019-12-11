@@ -15,8 +15,8 @@ baseline:
   dropout_rate: 0.5
 data:
   batch_size: 32
-  max_batch_size: 3000
-  max_sample_size: 100
+  max_batch_size: 5000
+  max_sample_size: 1000
   percent: 1.0
 vocabulary:
   vocab_cutoff: 10

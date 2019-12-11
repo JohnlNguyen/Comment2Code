@@ -74,8 +74,8 @@ class CodeDataReader(object):
         # subset data
         percent = float(self.config['percent'])
         data = data[:int(len(data) * percent)]
-        train_data = data[:int(0.90 * len(data))]
-        valid_data = data[int(0.90 * len(data)):]
+        train_data = data[:int(0.95 * len(data))]
+        valid_data = data[int(0.95 * len(data)):]
         return train_data, valid_data, test_data
 
     def batcher(self, mode="training"):

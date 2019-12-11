@@ -5,7 +5,8 @@ unique_projects = {}
 for page in range(1, 11):
     url = base_url + str(page)
     r = requests.get(url)
-    data = r.json()["items"]
+    data = r.json()
+    data = data.get("items", [])
     for d in data:
         # only using active repos
         if d['archived']:

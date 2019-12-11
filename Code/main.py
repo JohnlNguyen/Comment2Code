@@ -14,7 +14,7 @@ from code_data_reader import CodeDataReader
 from metrics import MetricsTracker
 from log_saver import LogSaver
 from code_comment_aligner import log_and_print
-from model import CodeTransformerModel
+from model import CodeTransformerModel, BaselineModel
 
 import tensorflow as tf
 
@@ -30,22 +30,6 @@ def create_checkpoint(config, model, optimizer):
     return ckpt, ckpt_manager
 
 
-def validate(model, data, mode="valid"):
-    valid_loss = tf.keras.metrics.Mean(name='valid_loss')
-    valid_accuracy = tf.keras.metrics.BinaryAccuracy(name='valid_accuracy')
-    valid_entropy = tf.keras.metrics.BinaryCrossentropy(name='valid_entropy')
-
-    for inp in data.batcher(mode=mode):
-        inp, labels = inp[:-1], inp[-1]
-
-        predictions = model(*inp, training=False)
-        loss = loss_function(labels, predictions)
-        valid_loss(loss)
-        valid_accuracy(labels, predictions)
-        valid_entropy(labels, predictions)
-    return valid_accuracy.result().numpy(), valid_loss.result().numpy(), valid_entropy.result().numpy()
-
-
 def loss_function(targets, predictions):
     return tf.losses.binary_crossentropy(targets, predictions, label_smoothing=.01)
 
@@ -54,13 +38,13 @@ def get_learning_rate():
     return tf.constant(config["training"]["lr"])
 
 
-def train(model, data, restore=False):
+def train(model, data):
     optimizer = tf.optimizers.Adam(get_learning_rate)
     log = LogSaver(config["training"]["log_dir"], config["training"]
                    ["model"], config["training"]["input_type"], "code")
 
     ckpt, ckpt_manager = create_checkpoint(config, model, optimizer)
-    if restore and ckpt_manager.latest_checkpoint:
+    if ckpt_manager.latest_checkpoint:
         ckpt.restore(ckpt_manager.latest_checkpoint)
         print('Restored latest checkpoint')
 
@@ -159,6 +143,7 @@ def main():
         config["data"], args.data, test_file=args.test, vocab_file=args.vocab)
     model = CodeTransformerModel(
         config["transformer"], data.vocabulary.vocab_size)
+    # model = BaselineModel(config['baseline'], data.vocabulary.vocab_size)
 
     if args.mode == "train":
         train(model, data, args.restore)
